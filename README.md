@@ -3,6 +3,7 @@
 **A 100% Free, Fully Local, 8-Agent Software Development Life Cycle (SDLC) Execution Engine.**
 
 This repository is the official automation CLI for the [Agentic Software Delivery (ASD) Framework]([https://github.com/kasampra/Agentic-Software-Delivery-Framework]). It leverages your local Qwen model (via LMStudio) to autonomously architect, write, test, and containerize full-stack applications on your hard drive with zero cloud dependencies.
+https://github.com/kasampra/Agentic-Software-Delivery-Framework
 
 ---
 
