@@ -20,7 +20,11 @@ This Orchestrator does not use a single "mega-prompt". Instead, `src/orchestrato
 7. **Security Analyst** (Phase 7 & Gate 3)
 8. **Technical Writer** (Phase 8)
 
-*You can view the exact underlying rules for these agents in the `AGENTS.md` and `.agent/workflows/` directories.*
+### ⚙️ v3.0 Configuration Boundary (Cognitive RBAC)
+The Orchestrator's intelligence is fractured into three distinct configuration files inside the `config/` directory, making it infinitely scalable for enterprise teams without touching Python code:
+1. **Identity (`config/agents.md`)**: The topology mapping Phases to Agent Personas.
+2. **Capability (`config/skills.md`)**: Cognitive Role-Based Access Control (RBAC). It rigidly maps which MCP tools an agent is authorized to use. If the Requirements Engineer tries to hallucinate a shell command, the control plane intercepts and denies the request.
+3. **Alignment (`config/instructions.md`)**: The global constraints and system prompts governing the framework (e.g., output formatting, tech stack, and compliance rules).
 
 ---
 

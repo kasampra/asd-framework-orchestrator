@@ -69,6 +69,8 @@ class ControlPlaneDashboard(App):
         # Use unbuffered output to get it real-time
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["FORCE_COLOR"] = "1"  # Ensures rich outputs colorful ANSI text even in a pipe
         
         python_exe = sys.executable
 
@@ -79,7 +81,8 @@ class ControlPlaneDashboard(App):
             stdin=subprocess.PIPE,
             text=True,
             bufsize=1,
-            env=env
+            env=env,
+            encoding="utf-8"
         )
 
         for line in iter(self.process.stdout.readline, ""):

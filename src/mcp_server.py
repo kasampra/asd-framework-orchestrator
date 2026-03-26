@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from qwen_client import QwenClient
+from config_loader import load_agent_roles, load_agent_skills, load_instructions
 
 # Initialize FastMCP Server
 mcp = FastMCP("AgenticSDLC-Orchestrator")
@@ -26,15 +27,11 @@ AVAILABLE_TOOLS = [
 @mcp.tool()
 def get_framework_instructions() -> str:
     """
-    Use this tool to retrieve the system rules from AGENTS.md.
+    Use this tool to retrieve the system rules.
     This will inform you how the 8-agent SDLC operates.
     """
-    agents_path = Path("..") / "AGENTS.md"
     try:
-        if agents_path.exists():
-            return agents_path.read_text(encoding="utf-8")
-        else:
-            return "AGENTS.md not found in root directory. Proceed with standard software development best practices but strictly segregate frontend, backend, and infra."
+        return load_instructions()
     except Exception as e:
         return f"Error reading instructions: {str(e)}"
 
@@ -97,8 +94,14 @@ Relevant Context & Artifacts:
 Execute the above objective and provide the generated code, designs, or output.
 """
     result = qwen.generate_response(system_prompt, user_prompt, temperature=0.2)
+    
+    roles = load_agent_roles()
+    skills = load_agent_skills()
+    persona = roles.get(phase_name, "Agent")
+    allowed_tools = skills.get(persona, ["delegate_to_qwen_agent"])
+    
     result["tool_used"] = "delegate_to_qwen_agent"
-    result["available_tools"] = AVAILABLE_TOOLS
+    result["available_tools"] = allowed_tools
     return result
 
 @mcp.tool()
