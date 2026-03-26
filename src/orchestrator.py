@@ -195,10 +195,9 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
             console.print(Panel("Human-in-the-loop intervention required.", border_style="red"))
             
             choice = Prompt.ask(
-                "Action Required", 
+                "\n[bold]Action Required[/bold]\n[1] Abort Pipeline\n[2] Provide Manual Feedback to Agent (Retry)\n[3] Force Pass Gate\nChoice", 
                 choices=["1", "2", "3"], 
-                default="1", 
-                prompt="\n[1] Abort Pipeline\n[2] Provide Manual Feedback to Agent (Retry)\n[3] Force Pass Gate\nChoice"
+                default="1"
             )
             
             if choice == "1":
