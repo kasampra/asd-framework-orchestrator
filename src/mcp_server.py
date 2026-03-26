@@ -13,6 +13,14 @@ qwen = QwenClient()
 WORKSPACE_BASE_DIR = os.getenv("WORKSPACE_BASE_DIR", ".")
 TEMPLATES_DIR = os.getenv("TEMPLATES_DIR", "../.agent")
 
+# Registry of available tools for control plane visibility
+AVAILABLE_TOOLS = [
+    "delegate_to_qwen_agent",
+    "evaluate_quality_gate",
+    "log_audit_decision",
+    "get_framework_instructions",
+]
+
 @mcp.tool()
 def get_framework_instructions() -> str:
     """
@@ -30,15 +38,18 @@ def get_framework_instructions() -> str:
         return f"Error reading instructions: {str(e)}"
 
 @mcp.tool()
-def delegate_to_qwen_agent(phase_name: str, objective_prompt: str, context_documents: str = "") -> str:
+def delegate_to_qwen_agent(phase_name: str, objective_prompt: str, context_documents: str = "") -> dict:
     """
-    Claude Code: Use this tool to delegate a specific project phase (e.g. backend, frontend) 
-    to the specialized local Qwen worker agent.
+    Delegate a specific project phase to the specialized local Qwen worker agent.
 
-    Args:
-        phase_name: Name of the phase being run (e.g. "Requirements", "Backend", "Frontend").
-        objective_prompt: The desired outcome or task description you want Qwen to produce.
-        context_documents: Supporting files or architecture designs Qwen needs to do the job.
+    Returns a structured dict:
+    {
+        "reasoning": str,       # The agent's thinking/reasoning chain
+        "output": str,          # The final actionable output
+        "raw": str,             # The complete unmodified response
+        "tool_used": str,       # The tool name that was selected
+        "available_tools": list # All tools that were available
+    }
     """
     # Create the system prompt that forces Qwen to adhere to the framework
     system_prompt = f"""
@@ -57,28 +68,35 @@ Relevant Context & Artifacts:
 
 Execute the above objective and provide the generated code, designs, or output.
 """
-    return qwen.generate_response(system_prompt, user_prompt, temperature=0.2)
+    result = qwen.generate_response(system_prompt, user_prompt, temperature=0.2)
+    result["tool_used"] = "delegate_to_qwen_agent"
+    result["available_tools"] = AVAILABLE_TOOLS
+    return result
 
 @mcp.tool()
-def evaluate_quality_gate(gate_name: str, phase_objective: str, verification_context: str) -> str:
+def evaluate_quality_gate(gate_name: str, phase_objective: str, verification_context: str) -> dict:
     """
-    Claude Code: Use this tool at the "Hard Gates" (Phase 2 Architect and Phase 7 Security/QA).
-    This substitutes human intervention by using Qwen as a Gatekeeper AI to judge the outputs.
-    
-    Args:
-        gate_name: e.g. "Architecture Review" or "Security Audit"
-        phase_objective: What the phase *should* have done.
-        verification_context: The outputs you want the Gatekeeper to evaluate.
+    Use this tool at the "Hard Gates" (Architecture, QA, Security).
+    Uses Qwen as a Gatekeeper AI to judge the outputs.
+
+    Returns a structured dict:
+    {
+        "decision": str,        # PASS or FAIL
+        "reasoning": str,       # Detailed explanation
+        "thinking": str,        # The gatekeeper's internal reasoning chain
+        "tool_used": str,
+        "available_tools": list
+    }
     """
     result = qwen.evaluate_gate(gate_name, phase_objective, verification_context)
-    # Result is a dictionary with 'decision' and 'reasoning'
-    return f"GATE: {gate_name}\nDECISION: {result.get('decision', 'FAIL')}\nREASONING: {result.get('reasoning', 'No reasoning provided')}"
+    result["tool_used"] = "evaluate_quality_gate"
+    result["available_tools"] = AVAILABLE_TOOLS
+    return result
 
 @mcp.tool()
 def log_audit_decision(action: str, reasoning: str, context_file: str = "audit.md") -> str:
     """
-    Claude Code: Use this tool after EVERY phase to log exactly what tradeoff or 
-    architectural decision was just made.
+    Log exactly what tradeoff or architectural decision was just made.
     """
     try:
         # Determine log path. Defaulting to the workspace path or local dir
