@@ -122,14 +122,20 @@ Evaluate the evidence against the objective. Does it meet all criteria securely 
             raw = response.choices[0].message.content
             thinking, json_part = self._extract_reasoning(raw)
 
-            # Cleanup possible markdown JSON wrapping
-            json_part = json_part.strip().lstrip("```json").rstrip("```").strip()
+            # Robustly extract JSON block using regex
+            import re
+            json_match = re.search(r"\{.*\}", json_part, re.DOTALL)
+            if json_match:
+                json_part = json_match.group(0)
+            else:
+                raise ValueError("No JSON object found in response.")
+                
             result = json.loads(json_part)
             result["thinking"] = thinking
             return result
         except Exception as e:
             return {
                 "decision": "FAIL",
-                "reasoning": f"Exception occurred during Gatekeeper evaluation: {str(e)}",
+                "reasoning": f"Exception occurred during Gatekeeper evaluation: {str(e)}\nRaw Output: {json_part if 'json_part' in locals() else 'None'}",
                 "thinking": "",
             }
