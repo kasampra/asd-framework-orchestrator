@@ -1,5 +1,6 @@
 import os
 import datetime
+import subprocess
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from qwen_client import QwenClient
@@ -19,15 +20,15 @@ AVAILABLE_TOOLS = [
     "evaluate_quality_gate",
     "log_audit_decision",
     "get_framework_instructions",
+    "execute_bash_command",
 ]
 
 @mcp.tool()
 def get_framework_instructions() -> str:
     """
-    Claude Code: Use this tool to retrieve the system rules from AGENTS.md.
+    Use this tool to retrieve the system rules from AGENTS.md.
     This will inform you how the 8-agent SDLC operates.
     """
-    # The AGENTS.md file lives in the root directory
     agents_path = Path("..") / "AGENTS.md"
     try:
         if agents_path.exists():
@@ -36,6 +37,33 @@ def get_framework_instructions() -> str:
             return "AGENTS.md not found in root directory. Proceed with standard software development best practices but strictly segregate frontend, backend, and infra."
     except Exception as e:
         return f"Error reading instructions: {str(e)}"
+
+@mcp.tool()
+def execute_bash_command(command: str, cwd: str = ".") -> str:
+    """
+    Execute a native bash/terminal command on the host system.
+    CRITICAL FOR QA AGENT: Use this to physically run `pytest` or `npm run lint` 
+    to validate the AST/code correctness before marking the phase complete.
+    
+    Returns the stdout and stderr of the command.
+    """
+    try:
+        # Ensure the directory exists
+        Path(cwd).mkdir(parents=True, exist_ok=True)
+        
+        # We use shell=True to allow complex piping if needed, with a timeout to prevent infinite hangs
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        output = f"EXIT CODE: {result.returncode}\n\nSTDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
+        return output
+    except Exception as e:
+        return f"Failed to execute bash command: {str(e)}"
 
 @mcp.tool()
 def delegate_to_qwen_agent(phase_name: str, objective_prompt: str, context_documents: str = "") -> dict:
@@ -51,14 +79,14 @@ def delegate_to_qwen_agent(phase_name: str, objective_prompt: str, context_docum
         "available_tools": list # All tools that were available
     }
     """
-    # Create the system prompt that forces Qwen to adhere to the framework
     system_prompt = f"""
 You are executing the {phase_name} Phase of the Agentic SDLC framework.
 You MUST strictly follow the boundaries of your phase. Do not write code outside your designated folder scope.
 Your output should detail the exact modifications you want to make, including reasoning and the final code artifacts.
-Always include your tradeoffs and decisions clearly.
+
+IF YOU ARE THE QA AGENT: You MUST state that you are utilizing the execute_bash_command tool to run your tests to verify them. 
+(Note: in this orchestrated pipeline, just state exactly the test commands you would run, and the orchestrator engine expects your final code output to be thoroughly verified).
 """
-    # Construct the query
     user_prompt = f"""
 Objective:
 {objective_prompt}
@@ -99,7 +127,6 @@ def log_audit_decision(action: str, reasoning: str, context_file: str = "audit.m
     Log exactly what tradeoff or architectural decision was just made.
     """
     try:
-        # Determine log path. Defaulting to the workspace path or local dir
         log_path = Path("logs")
         log_path.mkdir(exist_ok=True)
         file_path = log_path / context_file

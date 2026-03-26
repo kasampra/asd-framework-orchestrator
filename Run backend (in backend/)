@@ -1,0 +1,5 @@
+# Run backend (in backend/)
+uvicorn main:app --reload
+
+# Run frontend (in frontend/)
+npm run dev

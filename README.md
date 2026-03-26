@@ -45,6 +45,16 @@ This makes debugging surgical, trust earned (not assumed), and errors attributab
 
 ---
 
+## 🛡️ Orchestrator v2.0 Resilience Features
+
+The engine is now a self-healing, human-in-the-loop system:
+- **Autonomous Self-Healing:** If the Gatekeeper AI rejects an agent's code, the Orchestrator autonomously feeds the Gatekeeper's reasoning back to the agent in a bounded retry loop, allowing the agent to fix its own bugs.
+- **Interactive Human Handoffs:** If the agent fails to heal the code twice, the engine pauses and directly asks the human architect (you) to provide manual context, force pass the gate, or abort.
+- **Live Terminal Dashboard (TUI):** Run the orchestrator inside a stunning, real-time split-pane terminal UI that live-streams the agent's inner `<think>` reasoning while tracking pipeline progress.
+- **AST Execution Sandbox:** The QA Agent is wired to physical terminal access, allowing it to natively run `pytest` and `npm lint` to physically validate the codebase.
+
+---
+
 ## 🚀 Quickstart: Running it Locally
 
 ### 1. Setup LMStudio (The AI Brain)
@@ -62,9 +72,16 @@ pip install -r requirements.txt
 ```
 
 ### 3. Generate an Application!
-Just tell the CLI what you want to build at the root of the repository:
+You have two ways to run the Orchestrator:
+
+**Standard CLI Mode:**
 ```bash
 python src/orchestrator.py "Build me a fully secure, dark-mode Todo App with FastAPI and React"
+```
+
+**Live TUI Dashboard Mode (Recommended):**
+```bash
+python src/tui.py "Build a sleek secure Hello World API with tests and docker"
 ```
 
 The CLI will spin up, load the `AGENTS.md` rules, generate the files, pass them through the Gatekeeper validations, extract the physical code files to your hard drive, and write:
