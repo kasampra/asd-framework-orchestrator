@@ -64,7 +64,8 @@ class ControlPlaneDashboard(App):
     def run_pipeline(self) -> None:
         """Runs the orchestrator as a subprocess and streams output to to the RichLog."""
         import os
-        orchestrator_path = os.path.join("src", "orchestrator.py")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        orchestrator_path = os.path.join(script_dir, "orchestrator.py")
         
         # Use unbuffered output to get it real-time
         env = os.environ.copy()
