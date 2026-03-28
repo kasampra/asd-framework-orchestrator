@@ -18,6 +18,22 @@ Most agentic frameworks today optimize for *demo success*—chaining unstructure
 We introduced a structure most developers skip: **Execution → Observation → Intervention → Recovery**.
 The moment you run this Orchestrator, you insert a physical **transaction boundary** between the LLM's hallucinated *proposal* and the system's actual write-to-disk *action*.
 
+```mermaid
+flowchart LR
+    subgraph Local LLM
+        A[Agent Brain] -->|Hallucinates Plan| B(Reasoning Block)
+    end
+    subgraph Control Plane
+        B -->|Intercepts| C{Gatekeeper Validator}
+        C -->|Fails| D[Auto-Heal Feedback Loop]
+        D --> A
+    end
+    subgraph Host System
+        C -->|Passes| E[(Physical Disk Writes)]
+        E --> F[AST Sandbox Execution]
+    end
+```
+
 ---
 
 ## 🏗️ The 8-Agent Waterfall Workflow
@@ -38,6 +54,23 @@ The orchestrator abandons the brittle "mega-prompt" approach. Instead, it dynami
 | **Gate 3** | **Gatekeeper AI** | *Security Review:* Blocks deployment if injection or access control flaws are detected. |
 | **Phase 8** | Technical Writer | Generates the `README.md` and user deployment instructions. |
 
+```mermaid
+flowchart TD
+    P1[1. Requirements] --> P2[2. Architecture]
+    P2 --> G1{Gate 1: Arch Review}
+    G1 -- Fail --> P2
+    G1 -- Pass --> P3[3. Backend]
+    P3 --> P4[4. Frontend]
+    P4 --> P5[5. Infrastructure]
+    P5 --> P6[6. QA Testing]
+    P6 --> G2{Gate 2: SAST / AST}
+    G2 -- Fail --> P6
+    G2 -- Pass --> P7[7. Security Analyst]
+    P7 --> G3{Gate 3: Threat Review}
+    G3 -- Fail --> P7
+    G3 -- Pass --> P8[8. Deployment]
+```
+
 ---
 
 ## 🔍 The Control Plane Layer
@@ -49,6 +82,23 @@ For every single step, it physically records:
 2. **Context Snapshot:** Exactly what documents the agent was viewing when it made its decision.
 3. **Tool Selection Record:** Which terminal commands or Python functions it tried to inject.
 4. **Intent-Execution Diff:** The difference between what the agent hallucinated, and what code actually survived compilation onto your disk.
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant ControlPlane
+    participant Filesystem
+    
+    Agent->>ControlPlane: Submit Raw Output (Thoughts + Code)
+    activate ControlPlane
+    ControlPlane->>ControlPlane: Extract Decision Trace <think>
+    ControlPlane->>ControlPlane: Snapshot Current Context
+    ControlPlane->>Filesystem: Write Validated Code
+    Filesystem-->>ControlPlane: Return Real Checksum/Diff
+    ControlPlane->>ControlPlane: Log Intent-Execution Diff
+    ControlPlane-->>Agent: Hand off to Next Phase
+    deactivate ControlPlane
+```
 
 This makes debugging surgical and makes errors attributable to a specific persona. *You can view all of this in the `logs/control_plane.md` and `logs/audit.md` files generated during runtime.*
 
@@ -80,6 +130,23 @@ Everything is governed strictly by the `config/` directory:
 1. **Identity (`config/agents.md`)**: The topology map assigning specific SDLC phases to designated Agent Personas.
 2. **Capability (`config/skills.md`)**: **Cognitive Role-Based Access Control (RBAC)**. This rigidly maps which specific execution tools (MCP) an agent is authorized to invoke. If the Requirements Engineer attempts to hallucinate a destructive shell command, the system intercepts and denies it.
 3. **Alignment (`config/instructions.md`)**: The global constraints governing the framework (output formatting, mandated tech stacks, code styles, and operational rules).
+
+```mermaid
+graph TD
+    subgraph Config Layer
+        I[Identity .md]
+        C[Capability .md] 
+        A[Alignment .md]
+    end
+    
+    subgraph Orchestrator Runtime
+        I -->|Inject Persona| P(Agent Node)
+        A -->|Inject Rules| P
+        C -->|Govern Tool Usage| ControlPlane[MCP Server]
+        P --> ControlPlane
+        ControlPlane -->|Execution| Tools
+    end
+```
 
 ---
 
