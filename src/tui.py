@@ -72,6 +72,7 @@ class ControlPlaneDashboard(App):
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         env["FORCE_COLOR"] = "1"  # Ensures rich outputs colorful ANSI text even in a pipe
+        env["TUI_MODE"] = "1"     # Tells orchestrator to drop the spammy spinners
         
         python_exe = sys.executable
 

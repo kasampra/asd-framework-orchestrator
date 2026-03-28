@@ -78,30 +78,36 @@ def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str) -
     step.context_snapshot.record("AGENTS.md (framework rules)", context[:500])
     step.context_snapshot.record("Phase Objective", objective)
 
-    with Progress(SpinnerColumn(), TextColumn(f"[bold yellow]Executing {phase_name}...[/bold yellow]"), console=console) as progress:
-        task = progress.add_task("working", total=None)
-        
+    if os.getenv("TUI_MODE"):
+        console.print(f"🌍 [bold yellow]Initializing {phase_name}[/bold yellow]")
+        console.print(f"🧠 Loading [cyan]{agent_role}[/cyan] Persona...")
+        console.print(f"📚 Ingesting context boundaries (Length: {len(context)})")
+        console.print("⚡ Delegating neural execution to Local Qwen...")
         result = delegate_to_qwen_agent(phase_name, objective, context)
-        step.decision_trace = result.get("reasoning", "")
-        step.tool_selection = ToolSelectionRecord(
-            available_tools=result.get("available_tools", AVAILABLE_TOOLS),
-            selected_tool=result.get("tool_used", "delegate_to_qwen_agent"),
-            tool_inputs={
-                "phase_name": phase_name,
-                "objective_prompt": objective[:200] + "..." if len(objective) > 200 else objective,
-                "context_length": len(context),
-            },
-            selection_reasoning=f"Phase {phase_name} requires code generation; delegate_to_qwen_agent is the appropriate tool.",
-        )
-
-        output = result.get("output", "")
-        log_audit_decision(f"Phase Execute: {phase_name}", f"Delegated task to Qwen worker.\nReasoning: {step.decision_trace[:300]}")
-        
-        filename = f"output_{phase_name.lower().replace(' ', '_')}.md"
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(output)
+    else:
+        with Progress(SpinnerColumn(), TextColumn(f"[bold yellow]Executing {phase_name}...[/bold yellow]"), console=console) as progress:
+            task = progress.add_task("working", total=None)
+            result = delegate_to_qwen_agent(phase_name, objective, context)
+            progress.update(task, completed=100)
             
-        progress.update(task, completed=100)
+    step.decision_trace = result.get("reasoning", "")
+    step.tool_selection = ToolSelectionRecord(
+        available_tools=result.get("available_tools", []),
+        selected_tool=result.get("tool_used", "delegate_to_qwen_agent"),
+        tool_inputs={
+            "phase_name": phase_name,
+            "objective_prompt": objective[:200] + "..." if len(objective) > 200 else objective,
+            "context_length": len(context),
+        },
+        selection_reasoning=f"Phase {phase_name} requires code generation; delegate_to_qwen_agent is the appropriate tool.",
+    )
+
+    output = result.get("output", "")
+    log_audit_decision(f"Phase Execute: {phase_name}", f"Delegated task to Qwen worker.\nReasoning: {step.decision_trace[:300]}")
+    
+    filename = f"output_{phase_name.lower().replace(' ', '_')}.md"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(output)
     
     written_files = extract_and_write_files(output)
     step.intent_diff = IntentExecutionDiff(
@@ -122,26 +128,32 @@ def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> 
     step.context_snapshot.record("Gate Objective", objective)
     step.context_snapshot.record("Verification Evidence", context[:500])
 
-    with Progress(SpinnerColumn(), TextColumn(f"[bold red]Gatekeeper Evaluating: {gate_name}...[/bold red]"), console=console) as progress:
-        task = progress.add_task("working", total=None)
+    if os.getenv("TUI_MODE"):
+        console.print(f"\n🛡️ [bold red]Initializing Gatekeeper AI: {gate_name}[/bold red]")
+        console.print(f"⚖️ Evaluating evidence against Phase boundaries...")
+        console.print("⏳ Awaiting Gatekeeper Decision Matrix...")
         result = evaluate_quality_gate(gate_name, objective, context)
-        
-        step.decision_trace = result.get("thinking", "")
-        step.tool_selection = ToolSelectionRecord(
-            available_tools=result.get("available_tools", AVAILABLE_TOOLS),
-            selected_tool=result.get("tool_used", "evaluate_quality_gate"),
-            tool_inputs={
-                "gate_name": gate_name,
-                "phase_objective": objective[:200],
-                "evidence_length": len(context),
-            },
-            selection_reasoning=f"Gate {gate_name} requires quality evaluation.",
-        )
+    else:
+        with Progress(SpinnerColumn(), TextColumn(f"[bold red]Gatekeeper Evaluating: {gate_name}...[/bold red]"), console=console) as progress:
+            task = progress.add_task("working", total=None)
+            result = evaluate_quality_gate(gate_name, objective, context)
+            progress.update(task, completed=100)
+            
+    step.decision_trace = result.get("thinking", "")
+    step.tool_selection = ToolSelectionRecord(
+        available_tools=result.get("available_tools", []),
+        selected_tool=result.get("tool_used", "evaluate_quality_gate"),
+        tool_inputs={
+            "gate_name": gate_name,
+            "phase_objective": objective[:200],
+            "evidence_length": len(context),
+        },
+        selection_reasoning=f"Gate {gate_name} requires quality evaluation.",
+    )
 
-        decision = result.get("decision", "FAIL")
-        reasoning = result.get("reasoning", "No reasoning provided")
-        log_audit_decision(f"Gatekeeper: {gate_name}", f"DECISION: {decision}\nREASONING: {reasoning}")
-        progress.update(task, completed=100)
+    decision = result.get("decision", "FAIL")
+    reasoning = result.get("reasoning", "No reasoning provided")
+    log_audit_decision(f"Gatekeeper: {gate_name}", f"DECISION: {decision}\nREASONING: {reasoning}")
     
     step.gate_decision = decision
     step.intent_diff = IntentExecutionDiff(
