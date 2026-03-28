@@ -58,7 +58,7 @@ class ControlPlaneDashboard(App):
         ]
         
         self.current_loading_message = ""
-        self.is_running = False
+        self.is_pipeline_running = False
         self.message_iterator = itertools.cycle(LOADING_MESSAGES)
 
     def compose(self) -> ComposeResult:
@@ -106,7 +106,7 @@ class ControlPlaneDashboard(App):
         self.sidebar.update(self.render_phases())
 
     def update_loading_message(self):
-        if self.is_running:
+        if self.is_pipeline_running:
             msg = next(self.message_iterator)
             self.loading_box.update(f"\n[bold cyan]🧠 Active Neural Task:[/bold cyan]\n[italic]{msg}[/italic]")
         else:
@@ -119,7 +119,7 @@ class ControlPlaneDashboard(App):
 
     @work(exclusive=True, thread=True)
     def run_pipeline(self) -> None:
-        self.is_running = True
+        self.is_pipeline_running = True
         import os
         script_dir = os.path.dirname(os.path.abspath(__file__))
         orchestrator_path = os.path.join(script_dir, "orchestrator.py")
@@ -155,7 +155,7 @@ class ControlPlaneDashboard(App):
                 # Mark specifically this phase as running
                 self.call_from_thread(self.set_phase_status, clean_line, "running")
                 self.call_from_thread(self.update_sidebar)
-                self.is_running = True
+                self.is_pipeline_running = True
                 
             # Identify phase completions
             if "completed!" in clean_line and "Phase" in clean_line:
@@ -166,10 +166,10 @@ class ControlPlaneDashboard(App):
                 self.call_from_thread(self.loading_box.update, f"\n[bold red]🛡️ Gatekeeper Evaluating...[/bold red]\n[italic]Analyzing output against framework constraints...[/italic]")
                 
             if "Action Required" in clean_line:
-                self.is_running = False
+                self.is_pipeline_running = False
                 self.call_from_thread(self.loading_box.update, f"\n[bold red]🚨 ACTION REQUIRED:[/bold red]\n[italic]Pipeline paused. Waiting for human input below...[/italic]")
 
-        self.is_running = False
+        self.is_pipeline_running = False
         self.call_from_thread(self.loading_box.update, "\n[bold green]🏆 Execution Complete. Systems Secure.[/bold green]")
         self.process.stdout.close()
         self.process.wait()
@@ -192,7 +192,7 @@ class ControlPlaneDashboard(App):
                 self.process.stdin.write(text + "\n")
                 self.process.stdin.flush()
                 inp.value = ""
-                self.is_running = True
+                self.is_pipeline_running = True
                 self.loading_box.update("\n[dim]Processing override feedback...[/dim]")
             except Exception as e:
                 self.log_widget.write(f"[red]Error sending input: {e}[/red]")
@@ -209,3 +209,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
