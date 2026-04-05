@@ -2,10 +2,20 @@
 import os
 import re
 import hashlib
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
+
+
+class EconomicsData(BaseModel):
+    total_tokens: Optional[int] = None
+    total_cost_usd: Optional[float] = None
+    cost_per_phase: Optional[dict] = None    # {"Phase 1 Requirements": 0.024, ...}
+    most_expensive_phase: Optional[str] = None
+    token_budget_exceeded: Optional[bool] = None
+    token_budget: Optional[int] = None       # From config if set, else None
 
 
 class ArchitectureDecisions(BaseModel):
@@ -38,6 +48,7 @@ class DecisionFingerprint(BaseModel):
     architecture: ArchitectureDecisions
     infrastructure: InfrastructureDecisions
     quality: QualityDecisions
+    economics: EconomicsData    # NEW
     passed_gates: list[str] = []
 
 
@@ -56,6 +67,7 @@ class FingerprintExtractor:
             architecture=self._extract_architecture(),
             infrastructure=self._extract_infrastructure(),
             quality=self._extract_quality(),
+            economics=self._extract_economics(),
             passed_gates=self._extract_gates()
         )
 
@@ -194,6 +206,24 @@ class FingerprintExtractor:
             linter=linter,
             dependency_manager=dep_manager
         )
+
+    def _extract_economics(self) -> EconomicsData:
+        report_path = Path("logs/cost_report.json")
+        if not report_path.exists():
+            return EconomicsData()
+            
+        try:
+            with open(report_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            
+            return EconomicsData(
+                total_tokens=report.get("total_tokens"),
+                total_cost_usd=report.get("total_cost_usd"),
+                cost_per_phase={p["phase_name"]: p["cost_usd"] for p in report.get("phases", [])},
+                most_expensive_phase=report.get("most_expensive_phase")
+            )
+        except Exception:
+            return EconomicsData()
 
     def _extract_gates(self) -> list[str]:
         gates = []

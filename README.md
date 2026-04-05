@@ -17,6 +17,8 @@ Most agentic frameworks fail in production because they suffer from four critica
     *   *Our Solution:* **8-Agent Waterfall.** We fracture the SDLC into 8 isolated personas (Requirements -> Arch -> Backend -> Frontend -> Infra -> QA -> Security -> Deploy).
 4.  **The "Architectural Drift" Problem:** As you iterate, the AI silently switches your database or framework. 
     *   *Our Solution:* **The Memory Layer.** We extract a "Decision Fingerprint" and diff it against your project baseline on every run.
+5.  **The "Economic Drift" Problem:** Runs can become unexpectedly expensive or token-heavy as prompts grow.
+    *   *Our Solution:* **Economic Fingerprinting.** We track token volume and cost per phase, flagging runs that exceed a 30% cost increase vs. the baseline.
 
 ---
 
@@ -31,13 +33,14 @@ The project is passed like a baton through 8 specialized agents. No agent sees t
 Sits between the agent's brain and your disk. It records:
 *   **Context Snapshots:** Exactly what was in the prompt.
 *   **Decision Traces:** The raw reasoning chain.
+*   **Token Economics:** Input/Output token counts and duration per step.
 *   **Intent-Execution Diffs:** What the agent planned vs. what it actually wrote.
 
 ### 3. The Governance Layer (Memory & Drift Detection)
 The **Memory Layer** ensures long-term project integrity.
-*   **Baseline:** The first run establishes the "Gold Standard" for your tech stack.
-*   **Drift Detection:** If a later run tries to switch from FastAPI to Flask, or PostgreSQL to MongoDB, the system flags it as a **BREAKING** change.
-*   **RBAC Locks:** Automatically suggests "Cognitive Locks" to freeze your architecture.
+*   **Baseline:** The first run establishes the "Gold Standard" for your tech stack and token budget.
+*   **Drift Detection:** If a later run tries to switch from FastAPI to Flask, or if the token volume spikes by >30%, the system flags it.
+*   **RBAC Locks:** Automatically suggests "Cognitive Locks" to freeze your architecture or cost-saving constraints.
 
 ### 4. The Configuration Layer (Cognitive RBAC)
 Managed via `config/`, this layer governs **Identity** (Personas), **Capability** (Tool access), and **Alignment** (Global rules).

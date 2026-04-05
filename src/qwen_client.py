@@ -70,10 +70,20 @@ class QwenClient:
             )
             raw = response.choices[0].message.content
             reasoning, output = self._extract_reasoning(raw)
+            
+            usage = {}
+            if hasattr(response, "usage"):
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+
             return {
                 "reasoning": reasoning,
                 "output": output,
                 "raw": raw,
+                "usage": usage
             }
         except Exception as e:
             error_msg = f"Error communicating with local Qwen model: {str(e)}"
@@ -121,6 +131,14 @@ Evaluate the evidence against the objective. Does it meet all criteria securely 
             )
             raw = response.choices[0].message.content
             thinking, json_part = self._extract_reasoning(raw)
+            
+            usage = {}
+            if hasattr(response, "usage"):
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
 
             # Robustly extract JSON block using regex
             import re
@@ -132,6 +150,7 @@ Evaluate the evidence against the objective. Does it meet all criteria securely 
                 
             result = json.loads(json_part)
             result["thinking"] = thinking
+            result["usage"] = usage
             return result
         except Exception as e:
             return {

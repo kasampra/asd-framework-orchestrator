@@ -24,10 +24,11 @@ graph TD
 
 | Component | Responsibility |
 | :--- | :--- |
-| **Fingerprint Extractor** | Scans `requirements.txt`, `Dockerfile`, `architecture.md`, and project structure to identify 13 core decision points. |
+| **Fingerprint Extractor** | Scans `requirements.txt`, `Dockerfile`, `architecture.md`, and `logs/cost_report.json` to identify 17 core decision points. |
+| **Cost Tracker** | Accumulates token spend and duration per phase during the SDLC run. |
 | **Baseline Store** | Manages `.asd/fingerprints/baseline.json`. Persists the initial run as the "gold standard" and maintains a history of the last 50 runs. |
 | **Drift Detector** | Compares current vs. baseline. Categorizes changes into `BREAKING`, `WARNING`, and `INFO` severities. |
-| **RBAC Generator** | Creates "Cognitive RBAC Locks" — JSON snippets to be pasted into agent configurations to "lock" decisions. |
+| **RBAC Generator** | Creates "Cognitive RBAC Locks" — JSON snippets to be pasted into agent configurations to "lock" decisions and budgets. |
 
 ---
 
@@ -56,7 +57,7 @@ On every run after the first:
 
 ## 📊 Decision Matrix (Severity Map)
 
-The system monitors 13 specific fields across three domains:
+The system monitors 17 specific fields across four domains:
 
 | Field | Domain | Severity | Impact |
 | :--- | :--- | :--- | :--- |
@@ -64,9 +65,13 @@ The system monitors 13 specific fields across three domains:
 | `database` | Architecture | **BREAKING** | Requires schema migration and driver changes. |
 | `auth_pattern` | Architecture | **BREAKING** | Critical security risk if changed silently. |
 | `base_image` | Infrastructure | **BREAKING** | Changes OS dependencies and security surface. |
+| `token_budget_exceeded`| Economics | **BREAKING** | Hard limit hit; pipeline should be locked. |
+| `total_cost_usd` | Economics | **WARNING** | >30% increase in run cost vs. baseline. |
+| `total_tokens` | Economics | **WARNING** | >30% increase in token volume vs. baseline. |
 | `folder_structure` | Architecture | **WARNING** | Affects code organization (e.g., `src` vs `flat`). |
 | `test_runner` | Quality | **WARNING** | Changes how CI/CD validates code. |
 | `linter` | Quality | **INFO** | Minor stylistic change. |
+| `most_expensive_phase` | Economics | **INFO** | Identifies which agent is consuming the most. |
 
 ---
 

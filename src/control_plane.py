@@ -104,6 +104,8 @@ class StepTrace:
     agent_role: str
     timestamp: str = ""
     duration_seconds: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
     # The 4 captures
     decision_trace: str = ""            # Raw reasoning chain from the agent
@@ -121,6 +123,7 @@ class StepTrace:
             f"**Agent Role:** {self.agent_role}  ",
             f"**Timestamp:** {self.timestamp}  ",
             f"**Duration:** {self.duration_seconds:.1f}s  ",
+            f"**Tokens:** {self.input_tokens + self.output_tokens} (I:{self.input_tokens}/O:{self.output_tokens})  ",
         ]
         if self.gate_decision:
             emoji = "✅" if self.gate_decision == "PASS" else "❌"
@@ -229,6 +232,17 @@ class ControlPlane:
         filepath = Path(output_dir) / "control_plane.md"
         filepath.write_text(report, encoding="utf-8")
         return str(filepath)
+
+    def get_economics_summary(self) -> dict:
+        return {
+            step.phase_name: {
+                "agent_role": step.agent_role,
+                "input_tokens": step.input_tokens,
+                "output_tokens": step.output_tokens,
+                "duration_seconds": step.duration_seconds
+            }
+            for step in self.steps
+        }
 
     def print_summary(self, console):
         """Print a rich summary table to the terminal."""

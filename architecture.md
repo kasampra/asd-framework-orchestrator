@@ -19,9 +19,10 @@ The ASD Orchestrator is a **Control Plane** that sits between an LLM (the Brain)
 
 ### 3. The Memory Layer (`src/memory/`)
 - **Fingerprint Extractor:** Analyzes artifacts on disk (e.g., `requirements.txt`, `Dockerfile`) to identify the "ground truth" architectural decisions.
+- **Cost Tracker:** Accumulates token spend and duration per phase, writing `logs/cost_report.json`.
 - **Baseline Store:** Persists the project's first run as the "golden state" in `.asd/fingerprints/baseline.json`.
-- **Drift Detector:** Automatically diffs current decisions against the baseline.
-- **Governance:** Detects framework drift and suggests **Cognitive RBAC Locks** to maintain project consistency.
+- **Drift Detector:** Automatically diffs current decisions and economics against the baseline.
+- **Governance:** Detects framework and economic drift, suggesting **Cognitive RBAC Locks** to maintain project consistency.
 
 ### 4. The Configuration Layer (`config/`)
 - **Agents:** Defines personas and phase assignments.
@@ -46,6 +47,8 @@ graph TD
     
     subgraph Governance (Memory Layer)
         Disk -->|Scan Artifacts| Extractor[Memory Extractor]
+        CP -->|Telemetry| Tracker[Cost Tracker]
+        Tracker -->|Report| Extractor
         Extractor -->|Current Fingerprint| Detector[Drift Detector]
         Detector -->|Baseline Diff| Audit[logs/audit.md]
         Detector -->|Breaking Drift| RBAC[logs/rbac_suggestions.md]
@@ -58,13 +61,14 @@ graph TD
 
 ## Core Decision Fields (Memory Layer)
 
-The framework monitors these 13 critical fields to ensure project stability:
+The framework monitors these 17 critical fields to ensure project stability:
 
 | Category | Fields |
 | :--- | :--- |
 | **Architecture** | `web_framework`, `database`, `auth_pattern`, `async_pattern`, `folder_structure` |
 | **Infrastructure** | `base_image`, `compose_version`, `ci_provider`, `port_mapping` |
 | **Quality** | `test_runner`, `coverage_threshold`, `linter`, `dependency_manager` |
+| **Economics** | `total_tokens`, `total_cost_usd`, `most_expensive_phase`, `token_budget_exceeded` |
 
 ---
 

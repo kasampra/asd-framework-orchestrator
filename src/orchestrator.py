@@ -29,6 +29,8 @@ from memory.fingerprint_extractor import FingerprintExtractor
 from memory.baseline_store import BaselineStore
 from memory.drift_detector import DriftDetector
 
+from memory.cost_tracker import CostTracker
+
 def print_header():
     console.print(Panel.fit(
         "[bold cyan]🤖 Agentic SDLC Orchestrator v2.0[/bold cyan]\n"
@@ -109,6 +111,10 @@ def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str) -
     output = result.get("output", "")
     log_audit_decision(f"Phase Execute: {phase_name}", f"Delegated task to Qwen worker.\nReasoning: {step.decision_trace[:300]}")
     
+    usage = result.get("usage", {})
+    step.input_tokens = usage.get("prompt_tokens", 0)
+    step.output_tokens = usage.get("completion_tokens", 0)
+
     filename = f"output_{phase_name.lower().replace(' ', '_')}.md"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(output)
@@ -159,6 +165,10 @@ def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> 
     reasoning = result.get("reasoning", "No reasoning provided")
     log_audit_decision(f"Gatekeeper: {gate_name}", f"DECISION: {decision}\nREASONING: {reasoning}")
     
+    usage = result.get("usage", {})
+    step.input_tokens = usage.get("prompt_tokens", 0)
+    step.output_tokens = usage.get("completion_tokens", 0)
+
     step.gate_decision = decision
     step.intent_diff = IntentExecutionDiff(
         intended_plan=f"Evaluate whether the evidence meets the criteria for: {objective[:200]}",
@@ -239,6 +249,7 @@ def main():
     store = BaselineStore()
     extractor = FingerprintExtractor(output_dir=".", run_id=cp.run_id, project_name=args.project)
     detector = DriftDetector()
+    cost_tracker = CostTracker(model="local-qwen")
 
     instructions = get_framework_instructions()
 
@@ -309,6 +320,18 @@ def main():
 
     # Memory Layer: Drift Detection
     try:
+        # Populate CostTracker from Control Plane
+        econ_summary = cp.get_economics_summary()
+        for phase_name, data in econ_summary.items():
+            cost_tracker.record_phase(
+                phase_name=phase_name,
+                agent_role=data["agent_role"],
+                input_tokens=data["input_tokens"],
+                output_tokens=data["output_tokens"],
+                duration_seconds=data["duration_seconds"]
+            )
+        cost_tracker.write_report()
+
         console.print("\n[bold cyan]🧠 Memory Layer: Extracting Decision Fingerprint...[/bold cyan]")
         current_fingerprint = extractor.extract()
         
