@@ -25,6 +25,10 @@ console = Console()
 from config_loader import load_agent_roles
 AGENT_ROLES = load_agent_roles()
 
+from memory.fingerprint_extractor import FingerprintExtractor
+from memory.baseline_store import BaselineStore
+from memory.drift_detector import DriftDetector
+
 def print_header():
     console.print(Panel.fit(
         "[bold cyan]🤖 Agentic SDLC Orchestrator v2.0[/bold cyan]\n"
@@ -221,13 +225,20 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
 def main():
     parser = argparse.ArgumentParser(description="Agentic SDLC CLI v2.0")
     parser.add_argument("objective", type=str, help="What do you want to build?")
+    parser.add_argument("--project", type=str, default="default_project", help="Project name for decision fingerprinting")
     args = parser.parse_args()
 
     print_header()
-    console.print(f"[bold]Target Objective:[/bold] {args.objective}\n")
+    console.print(f"[bold]Target Objective:[/bold] {args.objective}")
+    console.print(f"[bold]Project Name:[/bold] {args.project}\n")
 
     cp = ControlPlane()
     cp.objective = args.objective
+    
+    # Initialize Memory Layer
+    store = BaselineStore()
+    extractor = FingerprintExtractor(output_dir=".", run_id=cp.run_id, project_name=args.project)
+    detector = DriftDetector()
 
     instructions = get_framework_instructions()
 
@@ -295,6 +306,49 @@ def main():
         "Write the final `README.md` that explains exactly how a user can build, start, and execute the application locally. VERY IMPORTANT: Every code block MUST start with a comment containing the file path.", 
         infra_output[:2000] + "\n" + qa_output[:1000]
     )
+
+    # Memory Layer: Drift Detection
+    try:
+        console.print("\n[bold cyan]🧠 Memory Layer: Extracting Decision Fingerprint...[/bold cyan]")
+        current_fingerprint = extractor.extract()
+        
+        baseline = store.get_baseline()
+        if baseline:
+            console.print("[yellow]🔍 Comparing with project baseline...[/yellow]")
+            report = detector.detect(baseline, current_fingerprint)
+            
+            if report.has_drift:
+                console.print(Panel(
+                    f"[bold red]⚠️ Drift Detected![/bold red]\n"
+                    f"Breaking Changes: [red]{report.breaking_count}[/red]\n"
+                    f"Warnings: [yellow]{report.warning_count}[/yellow]\n\n"
+                    + "\n".join([f"• [bold]{i.field}[/bold]: {i.old_value} -> {i.new_value} ({i.severity})" for i in report.issues]),
+                    title="Decision Drift Report",
+                    border_style="red"
+                ))
+                log_audit_decision("[MEMORY] Drift Detection", f"Drift detected: {len(report.issues)} changes across architecture, infra, or quality.")
+                
+                # Write RBAC Lock if breaking
+                if report.breaking_count > 0:
+                    rbac_path = Path("logs/rbac_suggestions.md")
+                    rbac_path.parent.mkdir(exist_ok=True)
+                    with open(rbac_path, "a", encoding="utf-8") as rf:
+                        rf.write(f"## Run ID: {cp.run_id}\n")
+                        rf.write(report.generate_rbac_snippet())
+                    console.print(f"[dim]  ↳ RBAC lock suggested in logs/rbac_suggestions.md[/dim]")
+            else:
+                console.print("[bold green]✅ No drift — baseline confirmed[/bold green]")
+                log_audit_decision("[MEMORY] Drift Detection", "No drift detected — baseline confirmed.")
+        else:
+            console.print("[bold cyan]✨ Baseline established in .asd/fingerprints/[/bold cyan]")
+            log_audit_decision("[MEMORY] Establishing Baseline", f"First successful run for {args.project}. Baseline established.")
+
+        store.save(current_fingerprint)
+        console.print(f"[dim]↳ Fingerprint saved to: .asd/fingerprints/baseline.json[/dim]\n")
+    except Exception as e:
+        # User Story requirement: Memory Layer never crashes the pipeline
+        log_audit_decision("[MEMORY] Error", f"Memory Layer failed silently: {str(e)}")
+        console.print(f"[dim red]⚠️ Memory Layer encountered a silent error (logged to audit).[/dim red]")
 
     cp.print_summary(console)
     report_path = cp.write_report()

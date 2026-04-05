@@ -1,0 +1,62 @@
+[
+  {
+    "run_id": "20260405_103617",
+    "project_name": "e2e-test",
+    "timestamp": "2026-04-05T08:36:17.750548",
+    "pipeline_hash": "ec1cee3a",
+    "architecture": {
+      "web_framework": "fastapi",
+      "folder_structure": "src_layout",
+      "database": "postgres",
+      "auth_pattern": null,
+      "async_pattern": null
+    },
+    "infrastructure": {
+      "base_image": "python:3.11-slim",
+      "compose_version": "3.8",
+      "ci_provider": "none",
+      "port_mapping": "8000"
+    },
+    "quality": {
+      "test_runner": null,
+      "coverage_threshold": null,
+      "linter": null,
+      "dependency_manager": "pip"
+    },
+    "passed_gates": [
+      "gate_1",
+      "gate_2",
+      "gate_3"
+    ]
+  },
+  {
+    "run_id": "20260405_103635",
+    "project_name": "e2e-test",
+    "timestamp": "2026-04-05T08:36:35.082681",
+    "pipeline_hash": "75f256dd",
+    "architecture": {
+      "web_framework": "fastapi",
+      "folder_structure": "src_layout",
+      "database": "mysql",
+      "auth_pattern": null,
+      "async_pattern": null
+    },
+    "infrastructure": {
+      "base_image": "python:3.12-alpine",
+      "compose_version": "3.8",
+      "ci_provider": "none",
+      "port_mapping": "8000"
+    },
+    "quality": {
+      "test_runner": null,
+      "coverage_threshold": null,
+      "linter": null,
+      "dependency_manager": "pip"
+    },
+    "passed_gates": [
+      "gate_1",
+      "gate_2",
+      "gate_3"
+    ]
+  }
+]

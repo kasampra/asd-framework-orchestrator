@@ -1,190 +1,101 @@
 # 🤖 ASD Framework Orchestrator
+**The Sovereign SDLC Execution Kernel**
 
-**The Agentic Software Delivery (ASD) Execution Kernel** 
-
-A 100% Free, Fully Local, 8-Agent Software Development Life Cycle (SDLC) Execution Engine designed for deterministic control, observability, and human-in-the-loop intervention. 
-
-This repository is the official automation Control Plane for the [Agentic Software Delivery Framework](https://github.com/kasampra/Agentic-Software-Delivery-Framework).
-
-![Control Plane Header](https://img.shields.io/badge/Architecture-Control_Plane-00C7B7?style=for-the-badge) ![State](https://img.shields.io/badge/Agentic_AI-Local_Execution-000000?style=for-the-badge)
+The ASD Orchestrator is a 100% local, 8-agent Software Development Life Cycle (SDLC) engine designed to move AI coding from "unreliable magic" to "deterministic engineering."
 
 ---
 
-## 📖 The Philosophy: Moving Beyond "Prompt Spaghetti"
-Most agentic frameworks today optimize for *demo success*—chaining unstructured LLM calls together and letting them write directly to your hard drive. They observe reasoning, but they trust reasoning as a primitive.
+## 🚩 The Problems We Solve
 
-**The ASD Orchestrator optimizes for deterministic control.** 
+Most agentic frameworks fail in production because they suffer from four critical flaws that the ASD Orchestrator is built to eliminate:
 
-We introduced a structure most developers skip: **Execution → Observation → Intervention → Recovery**.
-The moment you run this Orchestrator, you insert a physical **transaction boundary** between the LLM's hallucinated *proposal* and the system's actual write-to-disk *action*.
-
-```mermaid
-flowchart LR
-    subgraph Local LLM
-        A[Agent Brain] -->|Hallucinates Plan| B(Reasoning Block)
-    end
-    subgraph Control Plane
-        B -->|Intercepts| C{Gatekeeper Validator}
-        C -->|Fails| D[Auto-Heal Feedback Loop]
-        D --> A
-    end
-    subgraph Host System
-        C -->|Passes| E[(Physical Disk Writes)]
-        E --> F[AST Sandbox Execution]
-    end
-```
+1.  **The "Black Box" Problem:** You don't know *why* an agent made a decision. 
+    *   *Our Solution:* **The Control Plane.** Every thought, context, and tool choice is recorded in `logs/control_plane.md`.
+2.  **The "Hallucination-to-Disk" Problem:** Agents write buggy or insecure code directly to your workspace. 
+    *   *Our Solution:* **Hard Quality Gates.** Automated Gatekeeper AIs (Architecture, QA, Security) must PASS the code before it is finalized.
+3.  **The "Mega-Prompt" Fragility:** Large prompts are brittle and lose focus. 
+    *   *Our Solution:* **8-Agent Waterfall.** We fracture the SDLC into 8 isolated personas (Requirements -> Arch -> Backend -> Frontend -> Infra -> QA -> Security -> Deploy).
+4.  **The "Architectural Drift" Problem:** As you iterate, the AI silently switches your database or framework. 
+    *   *Our Solution:* **The Memory Layer.** We extract a "Decision Fingerprint" and diff it against your project baseline on every run.
 
 ---
 
-## 🏗️ The 8-Agent Waterfall Workflow
+## 🏗️ The Building Blocks
 
-The orchestrator abandons the brittle "mega-prompt" approach. Instead, it dynamically pulls your local LLM (like Qwen or LLaMA) through a strict, 8-phase SDLC sequence. Every phase is strictly isolated and gated.
+The framework is composed of four autonomous layers working in concert:
 
-| Phase | Agent Persona | Objective & Output |
-| :--- | :--- | :--- |
-| **Phase 1** | Requirements Engineer | Ingests the raw prompt, negotiates ambiguity, and outputs a strict Markdown PRD (Product Requirements Document). |
-| **Phase 2** | System Architect | Intercepts the PRD. Designs the system architecture, component boundaries, and security stack. |
-| **Gate 1** | **Gatekeeper AI** | *Architecture Review:* Ensures the architect included CORS, Auth, and Framework constraints. |
-| **Phase 3** | Backend Developer | Generates DB schemas, endpoints, and middleware strictly matching the Phase 2 architecture. |
-| **Phase 4** | Frontend Developer | Generates client-side React/Next components targeting the Phase 3 backend endpoints. |
-| **Phase 5** | DevOps Engineer | Generates `Dockerfile`, `docker-compose.yml`, and CI/CD yaml pipelines. |
-| **Phase 6** | QA Testing Engineer | Uses MCP terminal tools to run physical `pytest` validations on the generated code. |
-| **Gate 2** | **Gatekeeper AI** | *QA Review:* Blocks execution if test coverage is failing or syntax errors exist. |
-| **Phase 7** | Security Analyst | Performs static analysis (SAST) and outputs vulnerability audits. |
-| **Gate 3** | **Gatekeeper AI** | *Security Review:* Blocks deployment if injection or access control flaws are detected. |
-| **Phase 8** | Technical Writer | Generates the `README.md` and user deployment instructions. |
+### 1. The Execution Layer (The 8 Agents)
+The project is passed like a baton through 8 specialized agents. No agent sees the whole project; they only see what is relevant to their phase, ensuring high-density focus and better code quality.
 
-```mermaid
-flowchart TD
-    P1[1. Requirements] --> P2[2. Architecture]
-    P2 --> G1{Gate 1: Arch Review}
-    G1 -- Fail --> P2
-    G1 -- Pass --> P3[3. Backend]
-    P3 --> P4[4. Frontend]
-    P4 --> P5[5. Infrastructure]
-    P5 --> P6[6. QA Testing]
-    P6 --> G2{Gate 2: SAST / AST}
-    G2 -- Fail --> P6
-    G2 -- Pass --> P7[7. Security Analyst]
-    P7 --> G3{Gate 3: Threat Review}
-    G3 -- Fail --> P7
-    G3 -- Pass --> P8[8. Deployment]
-```
+### 2. The Observation Layer (Control Plane)
+Sits between the agent's brain and your disk. It records:
+*   **Context Snapshots:** Exactly what was in the prompt.
+*   **Decision Traces:** The raw reasoning chain.
+*   **Intent-Execution Diffs:** What the agent planned vs. what it actually wrote.
+
+### 3. The Governance Layer (Memory & Drift Detection)
+The **Memory Layer** ensures long-term project integrity.
+*   **Baseline:** The first run establishes the "Gold Standard" for your tech stack.
+*   **Drift Detection:** If a later run tries to switch from FastAPI to Flask, or PostgreSQL to MongoDB, the system flags it as a **BREAKING** change.
+*   **RBAC Locks:** Automatically suggests "Cognitive Locks" to freeze your architecture.
+
+### 4. The Configuration Layer (Cognitive RBAC)
+Managed via `config/`, this layer governs **Identity** (Personas), **Capability** (Tool access), and **Alignment** (Global rules).
 
 ---
 
-## 🔍 The Control Plane Layer
-
-Between every single phase above, the system passes through the **Control Plane** — an enforcement boundary. 
-
-For every single step, it physically records:
-1. **Decision Trace:** The agent's raw `<think>` block trajectory.
-2. **Context Snapshot:** Exactly what documents the agent was viewing when it made its decision.
-3. **Tool Selection Record:** Which terminal commands or Python functions it tried to inject.
-4. **Intent-Execution Diff:** The difference between what the agent hallucinated, and what code actually survived compilation onto your disk.
-
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant ControlPlane
-    participant Filesystem
-    
-    Agent->>ControlPlane: Submit Raw Output (Thoughts + Code)
-    activate ControlPlane
-    ControlPlane->>ControlPlane: Extract Decision Trace <think>
-    ControlPlane->>ControlPlane: Snapshot Current Context
-    ControlPlane->>Filesystem: Write Validated Code
-    Filesystem-->>ControlPlane: Return Real Checksum/Diff
-    ControlPlane->>ControlPlane: Log Intent-Execution Diff
-    ControlPlane-->>Agent: Hand off to Next Phase
-    deactivate ControlPlane
-```
-
-This makes debugging surgical and makes errors attributable to a specific persona. *You can view all of this in the `logs/control_plane.md` and `logs/audit.md` files generated during runtime.*
-
----
-
-## 🛡️ v2.0 Resilience & Visual Feedback
-
-The engine is engineered for operational survival. It handles failures gracefully through a multi-tiered resilience tree visible entirely through our **Textual UI (TUI)** dashboard.
-
-### 1. Autonomous Auto-Healing
-When the Gatekeeper AI rejects an agent's code at a hard gate (e.g., missing middleware), the Orchestrator doesn't crash. It autonomously feeds the Gatekeeper's strict rejection reason back to the agent in a bounded retry loop, forcing the agent to heal its own code.
-
-### 2. Interactive Human Handoffs (The Ultimate Override)
-If the agent exhausts its auto-retries, the engine safely halts execution. The **Visual TUI Dashboard** blinks red, pausing the pipeline and asking the human architect (you) in the terminal to:
-- Provide manual, steering keyboard feedback
-- Force-pass the gate
-- Abort execution entirely
-
-### 3. AST Validation Sandbox
-The QA Agent possesses physical terminal execution capabilities via Model Context Protocol (MCP). It can autonomously compile abstract syntax trees and run `pytest` to physically validate code before passing a phase.
-
----
-
-## ⚙️ v3.0 Modular Configuration (Cognitive RBAC)
-
-In v3.0, the framework’s intelligence has been fractured into a scalable microservice-like configuration layer. You no longer need to edit Python code to mutate agent behaviors. 
-
-Everything is governed strictly by the `config/` directory:
-1. **Identity (`config/agents.md`)**: The topology map assigning specific SDLC phases to designated Agent Personas.
-2. **Capability (`config/skills.md`)**: **Cognitive Role-Based Access Control (RBAC)**. This rigidly maps which specific execution tools (MCP) an agent is authorized to invoke. If the Requirements Engineer attempts to hallucinate a destructive shell command, the system intercepts and denies it.
-3. **Alignment (`config/instructions.md`)**: The global constraints governing the framework (output formatting, mandated tech stacks, code styles, and operational rules).
+## 🔄 Memory Layer User Flow
 
 ```mermaid
 graph TD
-    subgraph Config Layer
-        I[Identity .md]
-        C[Capability .md] 
-        A[Alignment .md]
-    end
-    
-    subgraph Orchestrator Runtime
-        I -->|Inject Persona| P(Agent Node)
-        A -->|Inject Rules| P
-        C -->|Govern Tool Usage| ControlPlane[MCP Server]
-        P --> ControlPlane
-        ControlPlane -->|Execution| Tools
-    end
+    A[SDLC Run] --> B{Baseline Exists?}
+    B -- No --> C[Establish Gold Standard]
+    B -- Yes --> D[Extract Current Fingerprint]
+    D --> E[Diff vs. Baseline]
+    E -->|No Drift| F[✅ Clean Exit]
+    E -->|Drift Found| G[⚠️ Severity Report]
+    G --> H[Generate RBAC Lock Snippet]
+    H --> I[Log to logs/rbac_suggestions.md]
 ```
 
 ---
 
 ## 🚀 Quickstart Guide
 
-### 1. Setup LMStudio (The Local Brain)
-1. Download and install [LMStudio](https://lmstudio.ai/).
-2. Load a highly capable coding model (e.g., Qwen 2.5 Coder 7B).
-3. Start the Local API Server on `http://127.0.0.1:1234/v1`.
+### 1. Set Up the Brain
+The orchestrator expects a local OpenAI-compatible API (LMStudio or Ollama).
+*   **LMStudio:** Start server on `http://127.0.0.1:1234/v1` with `qwen2.5-coder-7b`.
 
-### 2. Install the Orchestrator
+### 2. Installation
 ```bash
 git clone https://github.com/kasampra/asd-framework-orchestrator.git
 cd asd-framework-orchestrator
-python -m venv venv
-# Windows: .\venv\Scripts\activate | Mac/Linux: source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Generate a Microservice
-Run the Orchestrator natively in your terminal using the stunning Live Control Plane TUI:
+### 3. Build & Govern
+Execute the orchestrator. The `--project` flag is critical for the Memory Layer to track your specific baseline.
 
 ```bash
-python src/tui.py "Build a sleek secure Hello World REST API with tests and docker"
-```
+# Run 1: Establishes the Baseline
+python src/orchestrator.py "Build a FastAPI app with SQLite" --project "my-app"
 
-*Note: The script dynamically detects your execution directory and drops the generated codebase perfectly scoped into your workspace.*
+# Run 2: Automatically checks for Drift
+python src/orchestrator.py "Update the app with a new login endpoint" --project "my-app"
+```
 
 ---
 
-## 🏆 Proof of Concept
-See the `examples/hello-world-fullstack/` directory for a pristine, 100% autonomously generated application triggered completely by the TUI. The orchestrator successfully negotiated the backend, frontend, infrastructure, and a passing test suite with zero human intervention.
+## 📂 Artifacts & Traceability
+
+| File | Purpose |
+| :--- | :--- |
+| `logs/audit.md` | High-level audit trail of every major decision and drift event. |
+| `logs/control_plane.md` | Deep-dive telemetry for debugging agent reasoning. |
+| `logs/rbac_suggestions.md` | Automatically generated locks to prevent architectural drift. |
+| `.asd/fingerprints/` | JSON storage for project decision baselines. |
 
 ---
 
 ## License
-MIT — fork it, use the framework, and build your own sovereign AI systems.
-
----
-
-*Part of the [OwnYourIntelligence Series](https://www.linkedin.com/build-relation/newsletter-follow?entityUrn=7410977532142874624) — because sovereign AI isn't about rejecting capabilities. It's about controlling where your data lives, how your systems are built, and who holds the keys.*
+MIT — Part of the [OwnYourIntelligence Series](https://www.linkedin.com/build-relation/newsletter-follow?entityUrn=7410977532142874624). Sovereign AI for sovereign engineers.
