@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import argparse
+import hashlib
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,10 +18,35 @@ from mcp_server import (
     evaluate_quality_gate,
     log_audit_decision,
     AVAILABLE_TOOLS,
+    qwen,
 )
 from control_plane import ControlPlane, ContextSnapshot, ToolSelectionRecord, IntentExecutionDiff
 
 console = Console()
+
+class ArtifactManager:
+    """Manages verified phase outputs via disk storage for isolated context passing."""
+    def __init__(self, storage_dir: str = ".agent/artifacts"):
+        self.storage_dir = Path(storage_dir)
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+
+    def save(self, phase_name: str, content: str):
+        safe_name = phase_name.lower().replace(" ", "_")
+        artifact_path = self.storage_dir / f"{safe_name}.md"
+        artifact_path.write_text(content, encoding="utf-8")
+
+    def get(self, *phase_names: str) -> str:
+        """Combine specific phase artifacts from disk into a single context string."""
+        contents = []
+        for name in phase_names:
+            safe_name = name.lower().replace(" ", "_")
+            artifact_path = self.storage_dir / f"{safe_name}.md"
+            if artifact_path.exists():
+                artifact_content = artifact_path.read_text(encoding="utf-8")
+                contents.append(f"### Source: {name}\n{artifact_content}")
+            else:
+                contents.append(f"### Source: {name}\n(Artifact not found on disk)")
+        return "\n\n---\n\n".join(contents)
 
 from config_loader import load_agent_roles
 AGENT_ROLES = load_agent_roles()
@@ -76,24 +102,37 @@ def extract_and_write_files(markdown_text: str) -> list[str]:
     
     return written_files
 
-def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str) -> str:
+def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str, skip_compression: bool = False) -> str:
     agent_role = AGENT_ROLES.get(phase_name, "Agent")
+    cp.hooks.trigger("pre_phase_start", phase_name, agent_role)
+    
     step = cp.begin_step(phase_name, agent_role)
     start = time.time()
 
+    # Context Compression
+    if skip_compression:
+        compressed_context, tier = context, 0
+    else:
+        compressed_context, tier = cp.compressor.compress(context, max_tokens=8000, qwen_client=qwen)
+    
+    step.compression_tier = tier
+    if tier > 0:
+        console.print(f"[dim]  ⚡ Context compressed using Tier {tier}[/dim]")
+
     step.context_snapshot.record("AGENTS.md (framework rules)", context[:500])
     step.context_snapshot.record("Phase Objective", objective)
+    step.context_snapshot.record("Injected Context", compressed_context)
 
     if os.getenv("TUI_MODE"):
         console.print(f"🌍 [bold yellow]Initializing {phase_name}[/bold yellow]")
         console.print(f"🧠 Loading [cyan]{agent_role}[/cyan] Persona...")
-        console.print(f"📚 Ingesting context boundaries (Length: {len(context)})")
+        console.print(f"📚 Ingesting context boundaries (Length: {len(compressed_context)})")
         console.print("⚡ Delegating neural execution to Local Qwen...")
-        result = delegate_to_qwen_agent(phase_name, objective, context)
+        result = delegate_to_qwen_agent(phase_name, objective, compressed_context)
     else:
         with Progress(SpinnerColumn(), TextColumn(f"[bold yellow]Executing {phase_name}...[/bold yellow]"), console=console) as progress:
             task = progress.add_task("working", total=None)
-            result = delegate_to_qwen_agent(phase_name, objective, context)
+            result = delegate_to_qwen_agent(phase_name, objective, compressed_context)
             progress.update(task, completed=100)
             
     step.decision_trace = result.get("reasoning", "")
@@ -103,7 +142,7 @@ def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str) -
         tool_inputs={
             "phase_name": phase_name,
             "objective_prompt": objective[:200] + "..." if len(objective) > 200 else objective,
-            "context_length": len(context),
+            "context_length": len(compressed_context),
         },
         selection_reasoning=f"Phase {phase_name} requires code generation; delegate_to_qwen_agent is the appropriate tool.",
     )
@@ -129,24 +168,32 @@ def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str) -
     step.output_file = filename
     cp.finalize_step(step, start)
     console.print(f"[green]✓ {phase_name} completed![/green] (Saved to [cyan]{filename}[/cyan])\n")
+    
+    cp.hooks.trigger("post_phase_complete", phase_name, step.intent_diff.actual_output_summary)
     return output
 
 def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> tuple[bool, str]:
+    cp.hooks.trigger("on_gate_evaluate", gate_name, hashlib.sha256(context.encode()).hexdigest()[:8])
+    
     step = cp.begin_step(gate_name, "Gatekeeper AI")
     start = time.time()
 
+    # Context Compression (Gate output context varies per iteration, so we ALWAYS compress here)
+    compressed_context, tier = cp.compressor.compress(context, max_tokens=8000, qwen_client=qwen)
+    step.compression_tier = tier
+
     step.context_snapshot.record("Gate Objective", objective)
-    step.context_snapshot.record("Verification Evidence", context[:500])
+    step.context_snapshot.record("Verification Evidence", compressed_context)
 
     if os.getenv("TUI_MODE"):
         console.print(f"\n🛡️ [bold red]Initializing Gatekeeper AI: {gate_name}[/bold red]")
         console.print(f"⚖️ Evaluating evidence against Phase boundaries...")
         console.print("⏳ Awaiting Gatekeeper Decision Matrix...")
-        result = evaluate_quality_gate(gate_name, objective, context)
+        result = evaluate_quality_gate(gate_name, objective, compressed_context)
     else:
         with Progress(SpinnerColumn(), TextColumn(f"[bold red]Gatekeeper Evaluating: {gate_name}...[/bold red]"), console=console) as progress:
             task = progress.add_task("working", total=None)
-            result = evaluate_quality_gate(gate_name, objective, context)
+            result = evaluate_quality_gate(gate_name, objective, compressed_context)
             progress.update(task, completed=100)
             
     step.decision_trace = result.get("thinking", "")
@@ -156,7 +203,7 @@ def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> 
         tool_inputs={
             "gate_name": gate_name,
             "phase_objective": objective[:200],
-            "evidence_length": len(context),
+            "evidence_length": len(compressed_context),
         },
         selection_reasoning=f"Gate {gate_name} requires quality evaluation.",
     )
@@ -182,6 +229,7 @@ def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> 
     else:
         console.print(f"[bold red]✗ GATE FAILED:[/bold red] {gate_name}")
         console.print(f"[dim]{reasoning}[/dim]")
+        cp.hooks.trigger("on_gate_fail", gate_name, reasoning)
         return False, reasoning
 
 def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objective: str, context: str, gate_name: str, gate_objective: str, max_retries: int = 2) -> str:
@@ -193,8 +241,13 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
     current_objective = phase_objective
     retries = 0
     
+    # Pre-compress static input context before the loop to save cycles on retries
+    compressed_context, tier = cp.compressor.compress(context, max_tokens=8000, qwen_client=qwen)
+    if tier > 0:
+        console.print(f"[dim]  ⚡ Input context pre-compressed (Tier {tier})[/dim]")
+
     while retries <= max_retries:
-        output = run_phase(cp, phase_name, current_objective, context)
+        output = run_phase(cp, phase_name, current_objective, compressed_context, skip_compression=True)
         passed, reasoning = run_gate(cp, gate_name, gate_objective, output)
         
         if passed:
@@ -245,6 +298,15 @@ def main():
     cp = ControlPlane()
     cp.objective = args.objective
     
+    # Register default hooks for visibility
+    cp.hooks.register("pre_phase_start", lambda name, role: console.print(f"[bold cyan]HOOK: Starting {name} as {role}[/bold cyan]"))
+    cp.hooks.register("post_phase_complete", lambda name, summary: console.print(f"[bold green]HOOK: Completed {name}. {summary}[/bold green]"))
+    cp.hooks.register("on_gate_evaluate", lambda name, chash: console.print(f"[bold red]HOOK: Evaluating Gate {name} (Context Hash: {chash})[/bold red]"))
+    cp.hooks.register("on_gate_fail", lambda name, reason: log_audit_decision(f"GATE_FAIL: {name}", f"Reason: {reason}", "audit.md"))
+
+    # Artifact Manager for Context Isolation
+    am = ArtifactManager()
+    
     # Initialize Memory Layer
     store = BaselineStore()
     extractor = FingerprintExtractor(output_dir=".", run_id=cp.run_id, project_name=args.project)
@@ -255,68 +317,76 @@ def main():
 
     # Phase 1: Requirements
     req_output = run_phase(cp, "Phase 1 Requirements", args.objective, instructions)
+    am.save("Phase 1 Requirements", req_output)
 
     # Phase 2 & Gate 1 (Resilient)
     arch_output = execute_phase_with_resilience(
         cp,
         phase_name="Phase 2 Architecture",
         phase_objective="Generate a simple schema and architecture components for the project. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# architecture.md`).",
-        context=req_output[:2000],
+        context=am.get("Phase 1 Requirements"),
         gate_name="Architecture Review",
         gate_objective="Ensure the architecture meets the requirements and is secure. If missing CORS or any security middleware, FAIL the gate."
     )
+    am.save("Phase 2 Architecture", arch_output)
 
     # Phase 3: Backend
     backend_output = run_phase(
         cp,
         "Phase 3 Backend", 
         "Implement the backend code based strictly on the architecture design. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# backend/app/main.py`).", 
-        arch_output[:3000]
+        am.get("Phase 2 Architecture")
     )
+    am.save("Phase 3 Backend", backend_output)
     
     # Phase 4: Frontend
     frontend_output = run_phase(
         cp,
         "Phase 4 Frontend", 
         "Implement the frontend application code to securely communicate with the backend. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `// frontend/src/App.tsx`).", 
-        req_output[:1000] + "\n" + backend_output[:2000]
+        am.get("Phase 1 Requirements", "Phase 3 Backend")
     )
+    am.save("Phase 4 Frontend", frontend_output)
 
     # Phase 5: Infrastructure
     infra_output = run_phase(
         cp,
         "Phase 5 Infrastructure", 
         "Write Dockerfiles for the backend and frontend, and a root docker-compose.yml to run the full stack including the database. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# docker-compose.yml`).", 
-        arch_output[:1000] + "\n" + backend_output[:1000] + "\n" + frontend_output[:1000]
+        am.get("Phase 2 Architecture", "Phase 3 Backend", "Phase 4 Frontend")
     )
+    am.save("Phase 5 Infrastructure", infra_output)
 
     # Phase 6 & Gate 2 (Resilient)
     qa_output = execute_phase_with_resilience(
         cp,
         phase_name="Phase 6 QA Testing",
         phase_objective="Write a test suite for the backend application using pytest. IMPORTANT: You must write tests that physically execute. VERY IMPORTANT: Every code block MUST start with a comment containing the file path.",
-        context=backend_output[:3000],
+        context=am.get("Phase 3 Backend"),
         gate_name="QA Review",
         gate_objective="Evaluate the test cases to ensure they adequately cover the backend business logic and authentication."
     )
+    am.save("Phase 6 QA Testing", qa_output)
 
     # Phase 7 & Gate 3 (Resilient)
     sec_output = execute_phase_with_resilience(
         cp,
         phase_name="Phase 7 Security",
         phase_objective="Perform a security audit of the backend code and provide any secured file overwrites if vulnerabilities exist. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path.",
-        context=backend_output[:3000],
+        context=am.get("Phase 3 Backend"),
         gate_name="Security Review",
         gate_objective="Validate that the backend code does not contain injection or auth vulnerabilities."
     )
+    am.save("Phase 7 Security", sec_output)
 
     # Phase 8: Deployment & Documentation
     deploy_output = run_phase(
         cp,
         "Phase 8 Deployment", 
         "Write the final `README.md` that explains exactly how a user can build, start, and execute the application locally. VERY IMPORTANT: Every code block MUST start with a comment containing the file path.", 
-        infra_output[:2000] + "\n" + qa_output[:1000]
+        am.get("Phase 5 Infrastructure", "Phase 6 QA Testing")
     )
+    am.save("Phase 8 Deployment", deploy_output)
 
     # Memory Layer: Drift Detection
     try:

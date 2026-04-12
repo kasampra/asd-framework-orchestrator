@@ -14,9 +14,11 @@ Captures 4 types of telemetry for every single step:
 import hashlib
 import datetime
 import difflib
+import re
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 
 @dataclass
@@ -56,7 +58,6 @@ class ToolSelectionRecord:
                  "",
                  "**Inputs Passed:**",
                  "```json"]
-        import json
         lines.append(json.dumps(self.tool_inputs, indent=2, default=str))
         lines.append("```")
         return "\n".join(lines) + "\n"
@@ -106,6 +107,7 @@ class StepTrace:
     duration_seconds: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    compression_tier: int = 0  # 0: None, 1: Micro, 2: Auto, 3: Full
 
     # The 4 captures
     decision_trace: str = ""            # Raw reasoning chain from the agent
@@ -118,12 +120,14 @@ class StepTrace:
     output_file: str = ""
 
     def to_markdown(self) -> str:
+        compression_labels = {0: "None", 1: "MicroCompact", 2: "AutoCompact", 3: "FullCompact"}
         lines = [
             f"## {self.phase_name}",
             f"**Agent Role:** {self.agent_role}  ",
             f"**Timestamp:** {self.timestamp}  ",
             f"**Duration:** {self.duration_seconds:.1f}s  ",
             f"**Tokens:** {self.input_tokens + self.output_tokens} (I:{self.input_tokens}/O:{self.output_tokens})  ",
+            f"**Compression:** {compression_labels.get(self.compression_tier, 'Unknown')}  ",
         ]
         if self.gate_decision:
             emoji = "✅" if self.gate_decision == "PASS" else "❌"
@@ -157,6 +161,99 @@ class StepTrace:
         return "\n".join(lines)
 
 
+class HookManager:
+    """Manages event-driven hooks for the pipeline lifecycle."""
+    def __init__(self):
+        self.hooks: dict[str, list[Callable]] = {
+            "pre_phase_start": [],
+            "post_phase_complete": [],
+            "on_gate_evaluate": [],
+            "on_gate_fail": [],
+        }
+
+    def register(self, event_name: str, callback: Callable):
+        if event_name in self.hooks:
+            self.hooks[event_name].append(callback)
+
+    def trigger(self, event_name: str, *args, **kwargs):
+        if event_name in self.hooks:
+            for callback in self.hooks[event_name]:
+                try:
+                    callback(*args, **kwargs)
+                except Exception as e:
+                    print(f"⚠️  Warning: Hook '{event_name}' failed: {str(e)}")
+
+
+class ContextCompressor:
+    """Implements three-tier context compression to prevent context window overflow."""
+    
+    @staticmethod
+    def micro_compact(text: str) -> str:
+        """Tier 1: Strip formatting, comments, and empty lines."""
+        # Remove single line comments
+        text = re.sub(r'(^|\s)(#|//).*', '', text)
+        # Remove multi-line comments (simple regex approach)
+        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        text = re.sub(r'\'\'\'.*?\'\'\'', '', text, flags=re.DOTALL)
+        text = re.sub(r'\"\"\".*?\"\"\"', '', text, flags=re.DOTALL)
+        # Remove extra whitespace/newlines
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return "\n".join(lines)
+
+    @staticmethod
+    def auto_compact(text: str) -> str:
+        """Tier 2: Truncate code block bodies while keeping signatures/docstrings."""
+        def truncate_code_block(match):
+            lang = match.group(1)
+            content = match.group(2)
+            lines = content.splitlines()
+            if len(lines) <= 20:
+                return match.group(0)
+            
+            # Keep first 5 and last 5 lines as a heuristic for signatures/end
+            truncated = lines[:10] + [f"\n[... code truncated ... ({len(lines)-15} lines) ...]\n"] + lines[-5:]
+            return f"```{lang}\n" + "\n".join(truncated) + "\n```"
+
+        return re.sub(r"```([a-zA-Z0-9]*)\n(.*?)\n```", truncate_code_block, text, flags=re.DOTALL)
+
+    @staticmethod
+    def full_compact(text: str, qwen_client=None) -> str:
+        """Tier 3: Use LLM to summarize context into a strict bulleted list."""
+        if not qwen_client:
+            return text[:1000] + "\n\n[... TRUNCATED DUE TO FALLBACK ...]\n\n" + text[-1000:]
+        
+        prompt = "Summarize the following project context and code into a strict, concise bulleted list of constraints, schemas, and requirements. Keep only essential technical details."
+        result = qwen_client.generate_response("You are a context compression utility.", f"{prompt}\n\nContext:\n{text}")
+        output = result.get("output", "")
+        
+        if not output or len(output) < 10:
+            return text[:1000] + "\n\n[... TRUNCATED DUE TO FALLBACK ...]\n\n" + text[-1000:]
+        return output
+
+    def compress(self, text: str, max_tokens: int = 8000, qwen_client=None) -> tuple[str, int]:
+        """Runs the compression pipeline until the estimated tokens are under max_tokens."""
+        # Heuristic: 1 token ~= 4 characters for code/text
+        def estimate_tokens(t):
+            return len(t) // 4
+
+        if estimate_tokens(text) <= max_tokens:
+            return text, 0
+        
+        # Tier 1
+        text = self.micro_compact(text)
+        if estimate_tokens(text) <= max_tokens:
+            return text, 1
+        
+        # Tier 2
+        text = self.auto_compact(text)
+        if estimate_tokens(text) <= max_tokens:
+            return text, 2
+        
+        # Tier 3
+        text = self.full_compact(text, qwen_client)
+        return text, 3
+
+
 class ControlPlane:
     """
     Manages the trace log for the entire pipeline run.
@@ -168,6 +265,8 @@ class ControlPlane:
         self.run_start = datetime.datetime.now()
         self.steps: list[StepTrace] = []
         self.objective: str = ""
+        self.hooks = HookManager()
+        self.compressor = ContextCompressor()
 
     def begin_step(self, phase_name: str, agent_role: str) -> StepTrace:
         """Start recording a new pipeline step."""
@@ -204,14 +303,14 @@ class ControlPlane:
         # Summary table
         lines.append("## Pipeline Summary")
         lines.append("")
-        lines.append("| # | Phase | Agent | Duration | Gate | Files |")
-        lines.append("|---|-------|-------|----------|------|-------|")
+        lines.append("| # | Phase | Agent | Duration | Gate | Files | Comp |")
+        lines.append("|---|-------|-------|----------|------|-------|------|")
         for i, step in enumerate(self.steps, 1):
             gate = step.gate_decision or "—"
             n_files = len(step.intent_diff.files_actually_written)
             lines.append(
                 f"| {i} | {step.phase_name} | {step.agent_role} | "
-                f"{step.duration_seconds:.1f}s | {gate} | {n_files} |"
+                f"{step.duration_seconds:.1f}s | {gate} | {n_files} | {step.compression_tier} |"
             )
         lines.append("")
         lines.append("---")

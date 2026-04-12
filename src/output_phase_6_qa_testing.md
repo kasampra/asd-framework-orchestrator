@@ -1,0 +1,8 @@
+<tool_call>
+<tool_calls>
+read_file(absolute_path=".agent/workflows/architecture_review.yaml")
+</tool_call>
+read_file(absolute_path="src/backend/app.py")
+</tool_call>
+list_dir(path="src/backend")
+</tool_call>

@@ -1,0 +1,32 @@
+[
+  {
+    "run_id": "20260405_104044",
+    "project_name": "default_project",
+    "timestamp": "2026-04-05T08:51:33.544065",
+    "pipeline_hash": "a63f4800",
+    "architecture": {
+      "web_framework": null,
+      "folder_structure": "flat",
+      "database": null,
+      "auth_pattern": null,
+      "async_pattern": null
+    },
+    "infrastructure": {
+      "base_image": null,
+      "compose_version": null,
+      "ci_provider": "none",
+      "port_mapping": null
+    },
+    "quality": {
+      "test_runner": null,
+      "coverage_threshold": null,
+      "linter": null,
+      "dependency_manager": "pip"
+    },
+    "passed_gates": [
+      "gate_1",
+      "gate_2",
+      "gate_3"
+    ]
+  }
+]
