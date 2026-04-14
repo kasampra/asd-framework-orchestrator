@@ -50,15 +50,14 @@ class DriftReport(BaseModel):
         
         lines = [
             "### 🔒 Cognitive RBAC Lock Suggestion",
-            "Breaking drift detected in core architectural or economic decisions. Apply this lock to config/agents.md to prevent future drift.",
+            "Breaking drift detected in core architectural or economic decisions. Apply this lock to .asd/policies/agent_rbac.yaml to prevent future drift.",
             "",
-            "```json",
-            "{"
+            "```yaml",
+            "alignment:"
         ]
         
-        locks = [f'  "{i.field}": "{i.old_value}"' for i in self.issues if i.severity == "BREAKING"]
-        lines.append(",\n".join(locks))
-        lines.append("}")
+        locks = [f'      - "{i.field}: {i.old_value}"' for i in self.issues if i.severity == "BREAKING"]
+        lines.extend(locks)
         lines.append("```")
         lines.append("\n---\n")
         return "\n".join(lines)

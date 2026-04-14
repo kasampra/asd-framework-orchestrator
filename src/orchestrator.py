@@ -286,6 +286,15 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
     return ""
 
 def main():
+    # Import PolicyValidator from .asd folder
+    asd_path = str(Path(__file__).parent.parent / ".asd")
+    if asd_path not in sys.path:
+        sys.path.insert(0, asd_path)
+    
+    from policy_validator import PolicyValidator
+    PolicyValidator.validate()
+    console.print("[bold green]Policy-as-Code active. Governance loaded from .asd/policies/agent_rbac.yaml[/bold green]")
+
     parser = argparse.ArgumentParser(description="Agentic SDLC CLI v2.0")
     parser.add_argument("objective", type=str, help="What do you want to build?")
     parser.add_argument("--project", type=str, default="default_project", help="Project name for decision fingerprinting")
