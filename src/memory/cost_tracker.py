@@ -14,13 +14,14 @@ class PhaseEconomics:
     duration_seconds: float = 0.0
 
 class CostTracker:
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = "qwen/qwen3.6-35b-a3b"):
         self.phases: List[PhaseEconomics] = []
         self.model = model
         # Simple pricing for gpt-4o as a fallback/reference
         # Input: $2.50 / 1M tokens, Output: $10.00 / 1M tokens
         self.pricing = {
             "gpt-4o": {"input": 0.0000025, "output": 0.000010},
+            "qwen/qwen3.6-35b-a3b": {"input": 0.0, "output": 0.0},
             "local-qwen": {"input": 0.0, "output": 0.0}
         }
 

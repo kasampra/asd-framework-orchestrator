@@ -262,6 +262,10 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
             console.print(f"\n[bold red]❌ Gate Failed {max_retries} times. Auto-Heal Exhausted.[/bold red]")
             console.print(Panel("Human-in-the-loop intervention required.", border_style="red"))
             
+            if os.getenv("NON_INTERACTIVE"):
+                console.print("[yellow]NON_INTERACTIVE mode: Auto-aborting pipeline.[/yellow]")
+                sys.exit(1)
+
             choice = Prompt.ask(
                 "\n[bold]Action Required[/bold]\n[1] Abort Pipeline\n[2] Provide Manual Feedback to Agent (Retry)\n[3] Force Pass Gate\nChoice", 
                 choices=["1", "2", "3"], 
@@ -320,7 +324,9 @@ def main():
     store = BaselineStore()
     extractor = FingerprintExtractor(output_dir=".", run_id=cp.run_id, project_name=args.project)
     detector = DriftDetector()
-    cost_tracker = CostTracker(model="local-qwen")
+    
+    model_name = os.getenv("MODEL_NAME", "local-qwen")
+    cost_tracker = CostTracker(model=model_name)
 
     instructions = get_framework_instructions()
 

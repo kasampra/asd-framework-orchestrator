@@ -8,7 +8,7 @@ load_dotenv()
 
 class QwenClient:
     """
-    A client wrapper to interface with the local qwen/qwen3-coder-next model
+    A client wrapper to interface with the local qwen/qwen3.6-35b-a3b model
     running on LMStudio via the OpenAI compatibility layer.
 
     Supports extracting <think> reasoning blocks for the Control Plane.
@@ -16,7 +16,7 @@ class QwenClient:
     def __init__(self):
         self.base_url = os.getenv("OPENAI_BASE_URL", "http://127.0.0.1:1234/v1")
         self.api_key = os.getenv("OPENAI_API_KEY", "lm-studio")
-        self.model_name = os.getenv("MODEL_NAME", "qwen/qwen3-coder-next")
+        self.model_name = os.getenv("MODEL_NAME", "qwen/qwen3.6-35b-a3b")
         
         self.client = OpenAI(
             base_url=self.base_url,
