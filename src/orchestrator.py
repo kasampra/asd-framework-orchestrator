@@ -57,6 +57,7 @@ from memory.drift_detector import DriftDetector
 
 from memory.cost_tracker import CostTracker
 from core.reflection import ReflectionManager
+from core.skill_researcher import SkillResearcher
 
 def print_header():
     console.print(Panel.fit(
@@ -340,6 +341,16 @@ def main():
     # Phase 1: Requirements
     req_output = run_phase(cp, "Phase 1 Requirements", args.objective, instructions)
     am.save("Phase 1 Requirements", req_output)
+
+    # Phase 1.5: Skill Research (Framework Evolution)
+    sr = SkillResearcher(console)
+    evolved = sr.analyze_and_evolve(req_output)
+    if evolved:
+        # Reload AGENT_ROLES if the policy was updated
+        from config_loader import load_agent_roles
+        global AGENT_ROLES
+        AGENT_ROLES = load_agent_roles()
+        console.print("[bold green]🔄 Agent Roles reloaded with newly acquired skills.[/bold green]")
 
     # Phase 2 & Gate 1 (Resilient)
     arch_output = execute_phase_with_resilience(
