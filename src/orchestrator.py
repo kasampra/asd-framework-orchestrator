@@ -56,6 +56,7 @@ from memory.baseline_store import BaselineStore
 from memory.drift_detector import DriftDetector
 
 from memory.cost_tracker import CostTracker
+from core.reflection import ReflectionManager
 
 def print_header():
     console.print(Panel.fit(
@@ -232,11 +233,11 @@ def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> 
         cp.hooks.trigger("on_gate_fail", gate_name, reasoning)
         return False, reasoning
 
-def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objective: str, context: str, gate_name: str, gate_objective: str, max_retries: int = 2) -> str:
+def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objective: str, context: str, gate_name: str, gate_objective: str, max_retries: int = 2, reflection_manager: ReflectionManager = None) -> str:
     """
     Executes a phase and its corresponding gate.
+    Includes a self-reflection step before the gate check.
     If the gate fails, it autonomously auto-heals by passing the failure reasoning back to the agent.
-    If auto-heals are exhausted, it pauses for an Interactive Human-in-the-Loop Handoff.
     """
     current_objective = phase_objective
     retries = 0
@@ -248,6 +249,11 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
 
     while retries <= max_retries:
         output = run_phase(cp, phase_name, current_objective, compressed_context, skip_compression=True)
+        
+        # New Reflection Step
+        if reflection_manager:
+            output = reflection_manager.reflect_and_refine(phase_name, current_objective, output, compressed_context)
+            
         passed, reasoning = run_gate(cp, gate_name, gate_objective, output)
         
         if passed:
@@ -319,6 +325,7 @@ def main():
 
     # Artifact Manager for Context Isolation
     am = ArtifactManager()
+    rm = ReflectionManager(console)
     
     # Initialize Memory Layer
     store = BaselineStore()
@@ -341,7 +348,8 @@ def main():
         phase_objective="Generate a simple schema and architecture components for the project. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# architecture.md`).",
         context=am.get("Phase 1 Requirements"),
         gate_name="Architecture Review",
-        gate_objective="Ensure the architecture meets the requirements and is secure. If missing CORS or any security middleware, FAIL the gate."
+        gate_objective="Ensure the architecture meets the requirements and is secure. If missing CORS or any security middleware, FAIL the gate.",
+        reflection_manager=rm
     )
     am.save("Phase 2 Architecture", arch_output)
 
@@ -379,7 +387,8 @@ def main():
         phase_objective="Write a test suite for the backend application using pytest. IMPORTANT: You must write tests that physically execute. VERY IMPORTANT: Every code block MUST start with a comment containing the file path.",
         context=am.get("Phase 3 Backend"),
         gate_name="QA Review",
-        gate_objective="Evaluate the test cases to ensure they adequately cover the backend business logic and authentication."
+        gate_objective="Evaluate the test cases to ensure they adequately cover the backend business logic and authentication.",
+        reflection_manager=rm
     )
     am.save("Phase 6 QA Testing", qa_output)
 
@@ -390,7 +399,8 @@ def main():
         phase_objective="Perform a security audit of the backend code and provide any secured file overwrites if vulnerabilities exist. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path.",
         context=am.get("Phase 3 Backend"),
         gate_name="Security Review",
-        gate_objective="Validate that the backend code does not contain injection or auth vulnerabilities."
+        gate_objective="Validate that the backend code does not contain injection or auth vulnerabilities.",
+        reflection_manager=rm
     )
     am.save("Phase 7 Security", sec_output)
 
