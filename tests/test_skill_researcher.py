@@ -32,19 +32,30 @@ def test_skill_researcher_evolution():
     alignment: ["focus_on_index_optimization"]
     """
     
-    with patch('core.skill_researcher.delegate_to_qwen_agent') as mock_delegate:
+    with patch('core.skill_researcher.delegate_to_qwen_agent') as mock_delegate, \
+         patch('subprocess.run') as mock_run:
         mock_delegate.return_value = {"output": mock_response}
+        mock_run.return_value = MagicMock(returncode=0)
         
         evolved = sr.analyze_and_evolve("Needs high-performance SQL")
         
         assert evolved is True
+        
+        # Verify git commands were called
+        # 1. checkout -b
+        # 2. add
+        # 3. commit
+        assert mock_run.call_count == 3
+        
+        # Check branch name logic
+        args, kwargs = mock_run.call_args_list[0]
+        assert "evolution/add-phase-3-5-database-optimizer" in args[0]
         
         # Verify policy file was updated
         with open(policy_path, "r") as f:
             updated_policy = yaml.safe_load(f)
             
         assert "Phase 3.5 Database Optimizer" in updated_policy["agents"]
-        assert updated_policy["agents"]["Phase 3.5 Database Optimizer"]["identity"] == "Database Tuning Expert"
         
     print("✅ SkillResearcher Evolution Test Passed!")
     

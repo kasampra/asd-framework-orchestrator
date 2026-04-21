@@ -1,14 +1,16 @@
 import os
 import yaml
+import subprocess
 from pathlib import Path
 from mcp_server import delegate_to_qwen_agent
 
 class SkillResearcher:
     """Analyzes requirements to identify and implement missing agent skills."""
     
-    def __init__(self, console, policy_path=".asd/policies/agent_rbac.yaml"):
+    def __init__(self, console, policy_path=".asd/policies/agent_rbac.yaml", repo_path="."):
         self.console = console
         self.policy_path = Path(policy_path)
+        self.repo_path = Path(repo_path)
 
     def analyze_and_evolve(self, requirements: str):
         self.console.print("🔬 [bold blue]Starting Skill Gap Analysis...[/bold blue]")
@@ -50,14 +52,12 @@ class SkillResearcher:
         
         if "[GAP_FOUND]" in analysis_output:
             self.console.print("🚀 [bold green]Skill Gap Found! Evolving framework...[/bold green]")
-            self._apply_evolution(analysis_output, current_policy)
-            return True
+            return self._apply_evolution(analysis_output, current_policy)
         else:
             self.console.print("✅ [dim]No skill gaps identified for this project stack.[/dim]")
             return False
 
     def _apply_evolution(self, agent_suggestion: str, current_policy: dict):
-        # Extract YAML part (naive extraction for prototype)
         try:
             import re
             name_match = re.search(r'Specialized Role Name: "(.*?)"', agent_suggestion)
@@ -68,12 +68,27 @@ class SkillResearcher:
                 role_yaml_str = yaml_match.group(1)
                 role_data = yaml.safe_load(role_yaml_str)
                 
-                # Update policy
+                # 1. Create a new feature branch for the evolution
+                safe_role_name = role_name.lower().replace(" ", "-").replace(".", "-")
+                branch_name = f"evolution/add-{safe_role_name}"
+                
+                self.console.print(f"🌿 [dim]Creating new branch: {branch_name}[/dim]")
+                subprocess.run(["git", "checkout", "-b", branch_name], cwd=self.repo_path, capture_output=True)
+                
+                # 2. Update policy
                 current_policy["agents"][role_name] = role_data
                 
                 with open(self.policy_path, "w", encoding="utf-8") as f:
                     yaml.dump(current_policy, f, sort_keys=False)
                 
-                self.console.print(f"✨ [bold green]Framework Evolved:[/bold green] Added '{role_name}' to RBAC policies.")
+                # 3. Commit the evolution
+                self.console.print(f"📝 [dim]Committing framework evolution...[/dim]")
+                subprocess.run(["git", "add", str(self.policy_path)], cwd=self.repo_path, capture_output=True)
+                subprocess.run(["git", "commit", "-m", f"evolve: autonomously add {role_name} capability"], cwd=self.repo_path, capture_output=True)
+                
+                self.console.print(f"✨ [bold green]Framework Evolved:[/bold green] Added '{role_name}' in branch [cyan]{branch_name}[/cyan].")
+                return True
         except Exception as e:
             self.console.print(f"❌ [red]Failed to apply evolution: {str(e)}[/red]")
+            return False
+        return False
