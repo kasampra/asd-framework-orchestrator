@@ -22,7 +22,18 @@ AVAILABLE_TOOLS = [
     "log_audit_decision",
     "get_framework_instructions",
     "execute_bash_command",
+    "search_web",
 ]
+
+@mcp.tool()
+def search_web(query: str, depth: str = "mini") -> dict:
+    """
+    Conduct deep research on a topic using the Tavily-powered WebResearcher.
+    Set depth to 'pro' for comprehensive analysis or 'mini' for quick lookups.
+    """
+    from services.web_researcher import WebResearcher
+    researcher = WebResearcher()
+    return researcher.conduct_research(query, model=depth)
 
 @mcp.tool()
 def get_framework_instructions() -> str:

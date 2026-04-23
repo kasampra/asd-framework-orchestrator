@@ -33,29 +33,62 @@ class SkillResearcher:
         
         TASK:
         1. Identify if this project requires a specialized skill NOT covered by standard roles.
-        2. If a gap is found, define a new 'Specialized Agent' role in YAML format.
-        3. The YAML must include 'identity', 'allowed_tools', and 'alignment'.
+        2. If a gap is found, provide a search query to find the industry-best agentic patterns for this specific need.
         
-        Example Output:
+        Output Format:
         [GAP_FOUND]
-        Specialized Role Name: "Phase 3.5 Database Optimizer"
-        YAML:
-        identity: "Database Tuning Expert"
-        allowed_tools: ["delegate_to_qwen_agent", "execute_bash_command"]
-        alignment: ["focus_on_index_optimization", "use_explain_analyze"]
+        Reason: "Reason why a new role is needed"
+        Search Query: "A precise search query for agentic patterns"
         
         If no gap is found, respond with [NO_GAP].
         """
         
-        result = delegate_to_qwen_agent("Skill Research", analysis_prompt, "")
+        result = delegate_to_qwen_agent("Skill Gap Analysis", analysis_prompt, "")
         analysis_output = result.get("output", "")
         
         if "[GAP_FOUND]" in analysis_output:
-            self.console.print("🚀 [bold green]Skill Gap Found! Evolving framework...[/bold green]")
+            import re
+            query_match = re.search(r'Search Query: "(.*?)"', analysis_output)
+            if query_match:
+                search_query = query_match.group(1)
+                self.console.print(f"🔍 [bold yellow]Intelligence Gap Found. Researching:[/bold yellow] {search_query}")
+                
+                # 3. Conduct Web Research
+                from services.web_researcher import WebResearcher
+                web_res = WebResearcher()
+                research_res = web_res.conduct_research(search_query, model="mini")
+                
+                if research_res["success"]:
+                    self.console.print("🚀 [bold green]Research complete! Evolving framework with industry patterns...[/bold green]")
+                    return self._implement_evolution_with_research(research_res["content"], current_policy)
+                else:
+                    self.console.print(f"⚠️ [yellow]Research failed: {research_res.get('error')}. Falling back to internal reasoning.[/yellow]")
+            
             return self._apply_evolution(analysis_output, current_policy)
         else:
             self.console.print("✅ [dim]No skill gaps identified for this project stack.[/dim]")
             return False
+
+    def _implement_evolution_with_research(self, research_content: str, current_policy: dict):
+        evolution_prompt = f"""
+        You are a Sovereign AI Architect. You have discovered new industry patterns for an agentic skill gap.
+        
+        RESEARCH DATA:
+        {research_content}
+        
+        TASK:
+        Based on the research, define a new 'Specialized Agent' role in YAML format that implements these best practices.
+        
+        Output Format:
+        Specialized Role Name: "Role Name"
+        YAML:
+        identity: "Detailed persona describing their expertise based on research"
+        allowed_tools: ["delegate_to_qwen_agent", "execute_bash_command"]
+        alignment: ["List of specific architectural constraints or patterns found in research"]
+        """
+        
+        result = delegate_to_qwen_agent("Framework Evolution", evolution_prompt, "")
+        return self._apply_evolution(result.get("output", ""), current_policy)
 
     def _apply_evolution(self, agent_suggestion: str, current_policy: dict):
         try:
