@@ -60,6 +60,7 @@ from core.reflection import ReflectionManager
 from core.skill_researcher import SkillResearcher
 from core.tool_researcher import ToolResearcher
 from services.content_agent import ContentAgent
+from services.visualizer import Visualizer
 from mcp_server import AVAILABLE_TOOLS
 
 def print_header():
@@ -491,6 +492,10 @@ def main():
     # Phase 3.1: Knowledge Nugget Factory
     ca = ContentAgent(console)
     ca.generate_nuggets(report_path)
+
+    # Phase 3.2: Visual Traceability
+    mermaid_md = Visualizer.generate_mermaid(cp.steps)
+    Visualizer.append_to_report(report_path, mermaid_md)
 
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
