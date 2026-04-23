@@ -59,6 +59,7 @@ from memory.cost_tracker import CostTracker
 from core.reflection import ReflectionManager
 from core.skill_researcher import SkillResearcher
 from core.tool_researcher import ToolResearcher
+from services.content_agent import ContentAgent
 from mcp_server import AVAILABLE_TOOLS
 
 def print_header():
@@ -486,6 +487,10 @@ def main():
 
     cp.print_summary(console)
     report_path = cp.write_report()
+
+    # Phase 3.1: Knowledge Nugget Factory
+    ca = ContentAgent(console)
+    ca.generate_nuggets(report_path)
 
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
