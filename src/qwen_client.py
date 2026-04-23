@@ -38,17 +38,12 @@ class QwenClient:
             return reasoning, output
         return "", content.strip()
 
-    def generate_response(self, system_prompt: str, user_prompt: str, temperature: float = 0.3) -> dict:
+    def generate_response(self, system_prompt: str, user_prompt: str, temperature: float = 0.3, model_override: str = None) -> dict:
         """
         Send a request to the local Qwen model.
-        
-        Returns a structured dict:
-        {
-            "reasoning": str,   # The agent's thinking/reasoning chain
-            "output": str,      # The final actionable output
-            "raw": str,         # The complete unmodified response
-        }
         """
+        target_model = model_override or self.model_name
+        
         # Prepend instruction to expose reasoning in <think> blocks
         enhanced_system = (
             system_prompt + "\n\n"
@@ -60,7 +55,7 @@ class QwenClient:
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name,
+                model=target_model,
                 messages=[
                     {"role": "system", "content": enhanced_system},
                     {"role": "user", "content": user_prompt}
@@ -93,10 +88,11 @@ class QwenClient:
                 "raw": error_msg,
             }
 
-    def evaluate_gate(self, gate_name: str, objective: str, verification_context: str) -> dict:
+    def evaluate_gate(self, gate_name: str, objective: str, verification_context: str, model_override: str = None) -> dict:
         """
         Gatekeeper AI logic. Returns a structured dict with decision, reasoning, and trace.
         """
+        target_model = model_override or self.model_name
         system_prompt = f"""
 You are the GATEKEEPER AI for the Agentic SDLC framework.
 Your job is to evaluate if the current phase completed successfully based on the provided context.
@@ -122,7 +118,7 @@ Evaluate the evidence against the objective. Does it meet all criteria securely 
 """
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name,
+                model=target_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}

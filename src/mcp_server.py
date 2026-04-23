@@ -74,19 +74,11 @@ def execute_bash_command(command: str, cwd: str = ".") -> str:
         return f"Failed to execute bash command: {str(e)}"
 
 @mcp.tool()
-def delegate_to_qwen_agent(phase_name: str, objective_prompt: str, context_documents: str = "") -> dict:
+def delegate_to_qwen_agent(phase_name: str, objective_prompt: str, context_documents: str, model_override: str = None) -> dict:
     """
-    Delegate a specific project phase to the specialized local Qwen worker agent.
-
-    Returns a structured dict:
-    {
-        "reasoning": str,       # The agent's thinking/reasoning chain
-        "output": str,          # The final actionable output
-        "raw": str,             # The complete unmodified response
-        "tool_used": str,       # The tool name that was selected
-        "available_tools": list # All tools that were available
-    }
+    Delegates a specific SDLC phase task to the local Qwen model.
     """
+    # ... (rest of the docstring)
     system_prompt = f"""
 You are executing the {phase_name} Phase of the Agentic SDLC framework.
 You MUST strictly follow the boundaries of your phase. Do not write code outside your designated folder scope.
@@ -104,7 +96,8 @@ Relevant Context & Artifacts:
 
 Execute the above objective and provide the generated code, designs, or output.
 """
-    result = qwen.generate_response(system_prompt, user_prompt, temperature=0.2)
+    result = qwen.generate_response(system_prompt, user_prompt, temperature=0.2, model_override=model_override)
+
     
     roles = load_agent_roles()
     skills = load_agent_skills()
@@ -116,7 +109,7 @@ Execute the above objective and provide the generated code, designs, or output.
     return result
 
 @mcp.tool()
-def evaluate_quality_gate(gate_name: str, phase_objective: str, verification_context: str) -> dict:
+def evaluate_quality_gate(gate_name: str, phase_objective: str, verification_context: str, model_override: str = None) -> dict:
     """
     Use this tool at the "Hard Gates" (Architecture, QA, Security).
     Uses Qwen as a Gatekeeper AI to judge the outputs.
@@ -130,7 +123,7 @@ def evaluate_quality_gate(gate_name: str, phase_objective: str, verification_con
         "available_tools": list
     }
     """
-    result = qwen.evaluate_gate(gate_name, phase_objective, verification_context)
+    result = qwen.evaluate_gate(gate_name, phase_objective, verification_context, model_override=model_override)
     result["tool_used"] = "evaluate_quality_gate"
     result["available_tools"] = AVAILABLE_TOOLS
     return result
