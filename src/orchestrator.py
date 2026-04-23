@@ -536,6 +536,11 @@ def main():
     rt = ROITracker(cost_tracker)
     roi_md = rt.calculate_roi()
     rt.append_to_report(report_path, roi_md)
+
+    # Phase 3.2: Visual Traceability
+    mermaid_md = Visualizer.generate_mermaid(cp.steps)
+    Visualizer.append_to_report(report_path, mermaid_md)
+
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
         f"Check [cyan]logs/audit.md[/cyan] for the audit trail.\n"
