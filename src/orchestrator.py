@@ -532,6 +532,10 @@ def main():
     cp.print_summary(console)
     report_path = cp.write_report()
 
+    # Phase 3.1: ROI Tracker
+    rt = ROITracker(cost_tracker)
+    roi_md = rt.calculate_roi()
+    rt.append_to_report(report_path, roi_md)
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
         f"Check [cyan]logs/audit.md[/cyan] for the audit trail.\n"
