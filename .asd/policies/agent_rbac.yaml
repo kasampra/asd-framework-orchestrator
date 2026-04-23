@@ -1,3 +1,12 @@
+# Cognitive Locks prevent agents from executing high-risk objectives without manual override
+cognitive_locks:
+  - "delete database"
+  - "drop table"
+  - "rm -rf /"
+  - "publish to production"
+  - "modify core authentication"
+  - "external api access"
+
 agents:
   Phase 1 Requirements:
     identity: "Requirements Engineer \u2014 Phase 1"

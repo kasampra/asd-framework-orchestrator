@@ -20,6 +20,11 @@ class PolicyValidator:
             print(f"[ERROR] Failed to parse policy file: {str(e)}")
             sys.exit(1)
 
+        locks = policy.get("cognitive_locks", [])
+        if not isinstance(locks, list):
+            print("[POLICY VIOLATION] cognitive_locks must be a list.")
+            sys.exit(1)
+
         agents = policy.get("agents", {})
         if not agents:
             print("[POLICY VIOLATION] No agents defined in policy.")
@@ -78,6 +83,25 @@ class PolicyValidator:
             raise Exception("Policy validation failed.")
 
         print(f"[POLICY OK] All {agent_count} agents validated. Default Deny enforced. Pipeline cleared.")
+
+    @classmethod
+    def check_lock_violation(cls, objective: str) -> list:
+        """Checks if an objective contains any blocked keywords from cognitive_locks."""
+        try:
+            with open(cls.POLICY_PATH, "r", encoding="utf-8") as f:
+                policy = yaml.safe_load(f)
+            
+            locks = policy.get("cognitive_locks", [])
+            violations = []
+            obj_lower = objective.lower()
+            
+            for lock in locks:
+                if lock.lower() in obj_lower:
+                    violations.append(lock)
+            
+            return violations
+        except Exception:
+            return []
 
     @classmethod
     def _has_justification(cls, content: str, agent_name: str, tool: str) -> bool:
