@@ -62,6 +62,7 @@ from core.tool_researcher import ToolResearcher
 from services.content_agent import ContentAgent
 from services.visualizer import Visualizer
 from services.roi_tracker import ROITracker
+from services.security_scanner import SecurityScanner
 from mcp_server import AVAILABLE_TOOLS
 
 def print_header():
@@ -212,6 +213,17 @@ def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str, s
 def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> tuple[bool, str]:
     cp.hooks.trigger("on_gate_evaluate", gate_name, hashlib.sha256(context.encode()).hexdigest()[:8])
     
+    # --- Hard Security Gate Logic ---
+    if gate_name == "Security Review":
+        scanner = SecurityScanner(console)
+        sast = scanner.run_sast_scan(".") # Scan whole repo
+        secrets = scanner.scan_for_secrets(".")
+        security_report = scanner.generate_report(sast, secrets)
+        
+        # Inject the deterministic report into the context for the Gatekeeper AI
+        context = f"{context}\n\n### DETERMINISTIC SECURITY EVIDENCE:\n{security_report}"
+        console.print("  🛡️  [bold green]Deterministic security evidence injected into Gate context.[/bold green]")
+
     step = cp.begin_step(gate_name, "Gatekeeper AI")
     start = time.time()
 
