@@ -61,6 +61,7 @@ from core.skill_researcher import SkillResearcher
 from core.tool_researcher import ToolResearcher
 from services.content_agent import ContentAgent
 from services.visualizer import Visualizer
+from services.roi_tracker import ROITracker
 from mcp_server import AVAILABLE_TOOLS
 
 def print_header():
@@ -496,6 +497,11 @@ def main():
     # Phase 3.2: Visual Traceability
     mermaid_md = Visualizer.generate_mermaid(cp.steps)
     Visualizer.append_to_report(report_path, mermaid_md)
+
+    # Phase 3.3: ROI Tracker
+    rt = ROITracker(cost_tracker)
+    roi_md = rt.calculate_roi()
+    rt.append_to_report(report_path, roi_md)
 
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
