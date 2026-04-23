@@ -58,6 +58,8 @@ from memory.drift_detector import DriftDetector
 from memory.cost_tracker import CostTracker
 from core.reflection import ReflectionManager
 from core.skill_researcher import SkillResearcher
+from core.tool_researcher import ToolResearcher
+from mcp_server import AVAILABLE_TOOLS
 
 def print_header():
     console.print(Panel.fit(
@@ -342,7 +344,7 @@ def main():
     req_output = run_phase(cp, "Phase 1 Requirements", args.objective, instructions)
     am.save("Phase 1 Requirements", req_output)
 
-    # Phase 1.5: Skill Research (Framework Evolution)
+    # Phase 1.5: Skill & Tool Research (Framework Evolution)
     sr = SkillResearcher(console)
     evolved = sr.analyze_and_evolve(req_output)
     if evolved:
@@ -351,6 +353,9 @@ def main():
         global AGENT_ROLES
         AGENT_ROLES = load_agent_roles()
         console.print("[bold green]🔄 Agent Roles reloaded with newly acquired skills.[/bold green]")
+
+    tr = ToolResearcher(console)
+    tr.analyze_and_discover(req_output, AVAILABLE_TOOLS)
 
     # Phase 2 & Gate 1 (Resilient)
     arch_output = execute_phase_with_resilience(
