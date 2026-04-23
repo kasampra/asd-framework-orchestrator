@@ -3,6 +3,7 @@ import yaml
 import subprocess
 from pathlib import Path
 from mcp_server import delegate_to_qwen_agent
+from core.pattern_catalog import PatternCatalog
 
 class SkillResearcher:
     """Analyzes requirements to identify and implement missing agent skills."""
@@ -11,15 +12,17 @@ class SkillResearcher:
         self.console = console
         self.policy_path = Path(policy_path)
         self.repo_path = Path(repo_path)
+        self.catalog = PatternCatalog()
 
     def analyze_and_evolve(self, requirements: str):
         self.console.print("🔬 [bold blue]Starting Skill Gap Analysis...[/bold blue]")
         
-        # 1. Load current policy
+        # 1. Load current policy & catalog
         with open(self.policy_path, "r", encoding="utf-8") as f:
             current_policy = yaml.safe_load(f)
             
         current_agents = list(current_policy.get("agents", {}).keys())
+        known_patterns = self.catalog.get_all_summaries()
         
         # 2. Ask Agent to find gaps
         analysis_prompt = f"""
@@ -31,14 +34,19 @@ class SkillResearcher:
         CURRENT AGENT ROLES:
         {', '.join(current_agents)}
         
+        KNOWN SOVEREIGN PATTERNS (Local Catalog):
+        {known_patterns}
+        
         TASK:
         1. Identify if this project requires a specialized skill NOT covered by standard roles.
-        2. If a gap is found, provide a search query to find the industry-best agentic patterns for this specific need.
+        2. Check if any KNOWN SOVEREIGN PATTERN can solve this gap.
+        3. If a gap is found and NO local pattern exists, provide a search query.
         
         Output Format:
         [GAP_FOUND]
         Reason: "Reason why a new role is needed"
-        Search Query: "A precise search query for agentic patterns"
+        Use Known Pattern: "Pattern Name or None"
+        Search Query: "A precise search query if no pattern found"
         
         If no gap is found, respond with [NO_GAP].
         """
@@ -48,6 +56,16 @@ class SkillResearcher:
         
         if "[GAP_FOUND]" in analysis_output:
             import re
+            
+            # Check if we can use a known pattern
+            pattern_match = re.search(r'Use Known Pattern: "(.*?)"', analysis_output)
+            if pattern_match and pattern_match.group(1) != "None":
+                pattern_name = pattern_match.group(1)
+                self.console.print(f"💡 [bold green]Applying Known Pattern:[/bold green] {pattern_name}")
+                patterns = self.catalog.search_patterns(pattern_name)
+                if patterns:
+                    return self._implement_evolution_with_research(patterns[0]["content"], current_policy, from_catalog=True)
+
             query_match = re.search(r'Search Query: "(.*?)"', analysis_output)
             if query_match:
                 search_query = query_match.group(1)
@@ -69,11 +87,11 @@ class SkillResearcher:
             self.console.print("✅ [dim]No skill gaps identified for this project stack.[/dim]")
             return False
 
-    def _implement_evolution_with_research(self, research_content: str, current_policy: dict):
+    def _implement_evolution_with_research(self, research_content: str, current_policy: dict, from_catalog: bool = False):
         evolution_prompt = f"""
         You are a Sovereign AI Architect. You have discovered new industry patterns for an agentic skill gap.
         
-        RESEARCH DATA:
+        RESEARCH DATA / PATTERN CONTENT:
         {research_content}
         
         TASK:
@@ -81,6 +99,7 @@ class SkillResearcher:
         
         Output Format:
         Specialized Role Name: "Role Name"
+        Role Description: "Brief description for the catalog"
         YAML:
         identity: "Detailed persona describing their expertise based on research"
         allowed_tools: ["delegate_to_qwen_agent", "execute_bash_command"]
@@ -88,12 +107,13 @@ class SkillResearcher:
         """
         
         result = delegate_to_qwen_agent("Framework Evolution", evolution_prompt, "")
-        return self._apply_evolution(result.get("output", ""), current_policy)
+        return self._apply_evolution(result.get("output", ""), current_policy, research_content if not from_catalog else None)
 
-    def _apply_evolution(self, agent_suggestion: str, current_policy: dict):
+    def _apply_evolution(self, agent_suggestion: str, current_policy: dict, raw_research: str = None):
         try:
             import re
             name_match = re.search(r'Specialized Role Name: "(.*?)"', agent_suggestion)
+            desc_match = re.search(r'Role Description: "(.*?)"', agent_suggestion)
             yaml_match = re.search(r'YAML:\n(.*?)(?:\n\n|$)', agent_suggestion, re.DOTALL)
             
             if name_match and yaml_match:
@@ -101,13 +121,18 @@ class SkillResearcher:
                 role_yaml_str = yaml_match.group(1)
                 role_data = yaml.safe_load(role_yaml_str)
                 
-                # --- NEW: Autonomous Benchmarking ---
+                # --- Autonomous Benchmarking ---
                 from core.benchmarking_arena import BenchmarkingArena
                 arena = BenchmarkingArena(self.console)
                 if not arena.run_smoke_test(role_name, role_data):
                     self.console.print(f"🛑 [bold red]Evolution Aborted:[/bold red] Role '{role_name}' failed benchmarking. Scrapping evolution.")
                     return False
-                # ------------------------------------
+                
+                # --- Update Catalog if new research was used ---
+                if raw_research:
+                    role_desc = desc_match.group(1) if desc_match else "No description provided."
+                    self.console.print(f"📖 [dim]Saving pattern '{role_name}' to local catalog...[/dim]")
+                    self.catalog.add_pattern(role_name, role_desc, ["autonomous-evolution"], raw_research)
                 
                 # 1. Create a new feature branch for the evolution
                 safe_role_name = role_name.lower().replace(" ", "-").replace(".", "-")
