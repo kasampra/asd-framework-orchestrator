@@ -111,6 +111,36 @@ def extract_and_write_files(markdown_text: str) -> list[str]:
 
 def run_phase(cp: ControlPlane, phase_name: str, objective: str, context: str, skip_compression: bool = False) -> str:
     agent_role = AGENT_ROLES.get(phase_name, "Agent")
+    
+    # --- Cognitive Lock Check ---
+    from policy_validator import PolicyValidator
+    violations = PolicyValidator.check_lock_violation(objective)
+    if violations:
+        console.print(Panel(
+            f"[bold red]🔓 COGNITIVE LOCK TRIGGERED![/bold red]\n"
+            f"Phase: [cyan]{phase_name}[/cyan]\n"
+            f"Prohibited Keywords: [red]{', '.join(violations)}[/red]\n\n"
+            f"The agent objective contains high-risk actions locked by sovereign policy.",
+            title="Policy Enforcement",
+            border_style="red"
+        ))
+        
+        if os.getenv("ARCHITECT_BYPASS") == "1":
+            console.print("[yellow]⚠️  Manual Architect Bypass detected (Env: ARCHITECT_BYPASS=1). Proceeding with caution...[/yellow]")
+        else:
+            choice = Prompt.ask(
+                "\n[bold]Risk Mitigation Required[/bold]\n"
+                "[1] Abort (Safe)\n"
+                "[2] Manual Bypass (I take full responsibility)\nChoice", 
+                choices=["1", "2"], 
+                default="1"
+            )
+            if choice == "1":
+                console.print("[red]Execution blocked by Cognitive Lock.[/red]")
+                sys.exit(1)
+            else:
+                log_audit_decision(f"Manual Bypass: {phase_name}", f"User bypassed cognitive lock for keywords: {violations}")
+
     cp.hooks.trigger("pre_phase_start", phase_name, agent_role)
     
     step = cp.begin_step(phase_name, agent_role)
