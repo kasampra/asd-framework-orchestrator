@@ -1,164 +1,176 @@
 agents:
-  "Phase 1 Requirements":
-    identity: "Requirements Engineer — Phase 1"
+  Phase 1 Requirements:
+    identity: "Requirements Engineer \u2014 Phase 1"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
+    - delegate_to_qwen_agent
+    - get_framework_instructions
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "never_hardcode_credentials"
-      - "write_only_to_phase_1_output_path"
-      - "follow_atomic_commit_guidelines"
-
-  "Phase 2 Architecture":
-    identity: "System Architect — Phase 2"
+    - never_hardcode_credentials
+    - write_only_to_phase_1_output_path
+    - follow_atomic_commit_guidelines
+  Phase 2 Architecture:
+    identity: "System Architect \u2014 Phase 2"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
+    - delegate_to_qwen_agent
+    - get_framework_instructions
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "ensure_secure_architecture_patterns"
-      - "flag_security_risks_with_prefix"
-
-  "Phase 3 Backend":
-    identity: "Backend Developer — Phase 3"
+    - ensure_secure_architecture_patterns
+    - flag_security_risks_with_prefix
+  Phase 3 Backend:
+    identity: "Backend Developer \u2014 Phase 3"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
+    - delegate_to_qwen_agent
+    - get_framework_instructions
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "own_backend_folder"
-      - "use_python_type_hints"
-      - "never_hardcode_credentials"
-
-  "Phase 4 Frontend":
-    identity: "Frontend Developer — Phase 4"
+    - own_backend_folder
+    - use_python_type_hints
+    - never_hardcode_credentials
+  Phase 4 Frontend:
+    identity: "Frontend Developer \u2014 Phase 4"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
+    - delegate_to_qwen_agent
+    - get_framework_instructions
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "own_frontend_folder"
-      - "strict_mode_typescript"
-
-  "Phase 5 Infrastructure":
-    identity: "DevOps Engineer — Phase 5"
+    - own_frontend_folder
+    - strict_mode_typescript
+  Phase 5 Infrastructure:
+    identity: "DevOps Engineer \u2014 Phase 5"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
+    - delegate_to_qwen_agent
+    - get_framework_instructions
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "own_infra_folder"
-      - "docker_compose_best_practices"
-
-  "Phase 6 QA Testing":
-    identity: "QA Engineer — Phase 6"
+    - own_infra_folder
+    - docker_compose_best_practices
+  Phase 6 QA Testing:
+    identity: "QA Engineer \u2014 Phase 6"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
-      - execute_bash_command # justification: required for physical pytest execution
+    - delegate_to_qwen_agent
+    - get_framework_instructions
+    - execute_bash_command
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "physically_execute_tests"
-      - "validate_ast_correctness"
-
-  "Phase 7 Security":
-    identity: "Security Analyst — Phase 7"
+    - physically_execute_tests
+    - validate_ast_correctness
+  Phase 7 Security:
+    identity: "Security Analyst \u2014 Phase 7"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
-      - execute_bash_command # justification: required for running vulnerability scanners
+    - delegate_to_qwen_agent
+    - get_framework_instructions
+    - execute_bash_command
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "perform_security_audit"
-      - "flag_vulnerabilities_prefix"
-
-  "Phase 8 Deployment":
-    identity: "Technical Writer — Phase 8"
+    - perform_security_audit
+    - flag_vulnerabilities_prefix
+  Phase 8 Deployment:
+    identity: "Technical Writer \u2014 Phase 8"
     allowed_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
+    - delegate_to_qwen_agent
+    - get_framework_instructions
     denied_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - evaluate_quality_gate
+    - log_audit_decision
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "own_docs_folder"
-      - "write_clear_readme"
-
-  "Architecture Review":
-    identity: "Gatekeeper AI — Architecture"
+    - own_docs_folder
+    - write_clear_readme
+  Architecture Review:
+    identity: "Gatekeeper AI \u2014 Architecture"
     allowed_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
+    - evaluate_quality_gate
+    - log_audit_decision
     denied_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - delegate_to_qwen_agent
+    - get_framework_instructions
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "fail_on_missing_security_middleware"
-
-  "QA Review":
-    identity: "Gatekeeper AI — QA"
+    - fail_on_missing_security_middleware
+  QA Review:
+    identity: "Gatekeeper AI \u2014 QA"
     allowed_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
+    - evaluate_quality_gate
+    - log_audit_decision
     denied_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - delegate_to_qwen_agent
+    - get_framework_instructions
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "ensure_test_coverage"
-
-  "Security Review":
-    identity: "Gatekeeper AI — Security"
+    - ensure_test_coverage
+  Security Review:
+    identity: "Gatekeeper AI \u2014 Security"
     allowed_tools:
-      - evaluate_quality_gate
-      - log_audit_decision
+    - evaluate_quality_gate
+    - log_audit_decision
     denied_tools:
-      - delegate_to_qwen_agent
-      - get_framework_instructions
-      - execute_bash_command
-      - run_terminal
-      - write_deployment_path
+    - delegate_to_qwen_agent
+    - get_framework_instructions
+    - execute_bash_command
+    - run_terminal
+    - write_deployment_path
     alignment:
-      - "validate_no_injection_vulnerabilities"
+    - validate_no_injection_vulnerabilities
+  Ethical Consensus Arbiter:
+    identity: A specialized sovereign agent dedicated to facilitating Multi-Agent
+      Debate patterns to resolve complex ethical dilemmas and high-stakes decisions.
+      Expert in simulating collaborative reasoning among diverse agents, orchestrating
+      Group Chat dynamics, and synthesizing inputs into explainable consensus outcomes.
+      Proficient in applying democratic decision protocols (majority voting, unanimity)
+      and implementing ethical frameworks to ensure trust, accuracy, and alignment
+      with human values in sensitive domains like compliance, finance, and legal.
+    allowed_tools:
+    - delegate_to_qwen_agent
+    - execute_bash_command
+    alignment:
+    - Enforce Multi-Agent Debate patterns to simulate collaborative reasoning and
+      critique for complex decisions.
+    - Utilize Group Chat Orchestration to manage round-robin interactions and ensure
+      equitable agent participation.
+    - Apply decision protocols such as majority voting or unanimity consensus to finalize
+      outcomes.
+    - Prioritize explainability and diverse perspectives to foster trust and high
+      accuracy in ethical frameworks.
+    - Implement safeguards for high-stakes domains (compliance, medical, legal) requiring
+      rigorous validation.
