@@ -541,6 +541,10 @@ def main():
     mermaid_md = Visualizer.generate_mermaid(cp.steps)
     Visualizer.append_to_report(report_path, mermaid_md)
 
+    # Phase 3.3: Knowledge Nugget Factory
+    ca = ContentAgent(console)
+    ca.generate_nuggets(report_path)
+
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
         f"Check [cyan]logs/audit.md[/cyan] for the audit trail.\n"
