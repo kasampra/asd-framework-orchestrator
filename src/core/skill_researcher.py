@@ -101,6 +101,14 @@ class SkillResearcher:
                 role_yaml_str = yaml_match.group(1)
                 role_data = yaml.safe_load(role_yaml_str)
                 
+                # --- NEW: Autonomous Benchmarking ---
+                from core.benchmarking_arena import BenchmarkingArena
+                arena = BenchmarkingArena(self.console)
+                if not arena.run_smoke_test(role_name, role_data):
+                    self.console.print(f"🛑 [bold red]Evolution Aborted:[/bold red] Role '{role_name}' failed benchmarking. Scrapping evolution.")
+                    return False
+                # ------------------------------------
+                
                 # 1. Create a new feature branch for the evolution
                 safe_role_name = role_name.lower().replace(" ", "-").replace(".", "-")
                 branch_name = f"evolution/add-{safe_role_name}"
