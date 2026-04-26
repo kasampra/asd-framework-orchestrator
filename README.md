@@ -40,6 +40,12 @@ The **Memory Layer** ensures long-term project integrity. The first run establis
 ### 4. The Configuration Layer (Cognitive RBAC)
 Managed via `config/`, governing **Identity** (Personas), **Capability** (Tool access), and **Alignment** (Global SDLC rules).
 
+### 5. The Evolution Layer (Autonomous Intelligence)
+The framework's "Evolution Flywheel" allows it to build its own intelligence:
+-   **Skill Researcher**: Identifies capability gaps and conducts deep research via the **External Research Loop** (Tavily integration).
+-   **Benchmarking Arena**: A sovereign sandbox (`BenchmarkingArena`) that verifies new roles via automated smoke tests before policy integration.
+-   **Tool Researcher**: Discovers and recommends MCP servers to expand the framework's physical toolset.
+
 ---
 
 ## 🔄 Lifecycle User Flow
@@ -58,6 +64,12 @@ graph TD
     Memory --> Drift{Drift Detected?}
     Drift -- Yes --> RBAC[Suggest RBAC Locks]
     Drift -- No --> Audit[Log to Audit Trail]
+    
+    %% Evolution Loop
+    Objective[Gap Identified] --> SR[Skill Researcher]
+    SR --> ER[Research Loop]
+    ER --> BA[Benchmarking Arena]
+    BA -- Pass --> Evolution[Auto-Update RBAC Policy]
 ```
 
 ---
@@ -94,6 +106,8 @@ python src/orchestrator.py "Add a history feature" --project "calc-app"
 | `logs/audit.md` | High-level audit trail of decisions, gate results, and drift events. |
 | `logs/control_plane.md` | Detailed step-by-step telemetry, including compression tiers. |
 | `logs/rbac_suggestions.md` | Cognitive Locks suggested to prevent architectural drift. |
+| `logs/tool_discoveries.md` | Recommended MCP servers and tool expansions identified by the Tool Researcher. |
+| `logs/roi_metrics.json` | Automated ROI and token efficiency tracking per feature. |
 | `.asd/fingerprints/` | JSON storage for project decision baselines. |
 
 ---
