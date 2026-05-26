@@ -38,3 +38,7 @@ logs/
 # IDE
 .vscode/
 .idea/
+
+# ASD session state (raw LLM output — can be large and may contain sensitive data)
+.asd/checkpoints/
+.asd/sessions.json

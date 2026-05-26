@@ -172,6 +172,10 @@ agents:
     allowed_tools:
     - delegate_to_qwen_agent
     - execute_bash_command
+    denied_tools:
+    - evaluate_quality_gate
+    - write_deployment_path
+    - run_terminal
     alignment:
     - Enforce Multi-Agent Debate patterns to simulate collaborative reasoning and
       critique for complex decisions.

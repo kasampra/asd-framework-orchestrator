@@ -77,9 +77,9 @@ class PolicyValidator:
                 print(f"  {field}: {reason}")
                 # For specific constraint messages as requested in output format
                 if field == "denied_tools" and "empty" in reason:
-                     print(f"  No agent may have an empty denied_tools block — an empty list is a policy violation, not a safe default.")
+                     print(f"  No agent may have an empty denied_tools block -- an empty list is a policy violation, not a safe default.")
             
-            print("→ Policy failed. Pipeline halted.")
+            print("-> Policy failed. Pipeline halted.")
             raise Exception("Policy validation failed.")
 
         print(f"[POLICY OK] All {agent_count} agents validated. Default Deny enforced. Pipeline cleared.")

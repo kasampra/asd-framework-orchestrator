@@ -7,6 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from session.checkpoint_manager import CheckpointManager
+from session.session_store import SessionStore
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -343,140 +346,457 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
                 
     return ""
 
+# ---------------------------------------------------------------------------
+# Ordered list of all phases — used by the checkpoint cascade logic.
+# ---------------------------------------------------------------------------
+ALL_PHASES = [
+    "Phase 1 Requirements",
+    "Phase 2 Architecture",
+    "Phase 3 Backend",
+    "Phase 4 Frontend",
+    "Phase 5 Infrastructure",
+    "Phase 6 QA Testing",
+    "Phase 7 Security",
+    "Phase 8 Deployment",
+]
+
+
+def _run_phase_checkpointed(
+    cp: ControlPlane,
+    phase_name: str,
+    phase_fn,
+    am: "ArtifactManager",
+    cm: CheckpointManager,
+    ss: SessionStore,
+) -> str:
+    """
+    Wrapper that adds checkpoint save/load around a phase execution function.
+
+    If a valid checkpoint exists for `phase_name`, the phase is skipped and
+    the cached output is returned immediately.  Otherwise, `phase_fn()` is
+    called, and its output is persisted to a checkpoint before returning.
+
+    Args:
+        phase_fn: A zero-argument callable that executes the phase and returns
+                  the output string.  Use functools.partial or a lambda to
+                  bind arguments before passing.
+    """
+    cached = cm.load_output(phase_name)
+    if cached is not None:
+        console.print(
+            f"[dim]⏭  {phase_name} — loaded from checkpoint (skipped)[/dim]"
+        )
+        am.save(phase_name, cached)
+        return cached
+
+    output = phase_fn()
+    am.save(phase_name, output)
+
+    # Persist checkpoint
+    econ = cp.get_economics_summary()
+    phase_econ = econ.get(phase_name, {})
+    cp_path = cm.save(
+        phase_name,
+        output,
+        input_tokens=phase_econ.get("input_tokens", 0),
+        output_tokens=phase_econ.get("output_tokens", 0),
+        duration_seconds=phase_econ.get("duration_seconds", 0.0),
+    )
+    console.print(f"[dim]  💾 Checkpoint saved → {cp_path}[/dim]")
+
+    # Update session index
+    ss.update_phase_complete(
+        cm.run_id,
+        phase_name,
+        tokens=phase_econ.get("input_tokens", 0) + phase_econ.get("output_tokens", 0),
+        duration=phase_econ.get("duration_seconds", 0.0),
+    )
+
+    return output
+
+
+def _list_sessions_and_exit(ss: SessionStore) -> None:
+    """Print a formatted session history table and exit."""
+    from rich.table import Table
+
+    sessions = ss.list_all()
+    if not sessions:
+        console.print("[dim]No sessions found in .asd/sessions.json[/dim]")
+        sys.exit(0)
+
+    table = Table(
+        title="📋 ASD Orchestrator — Session History",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Run ID", style="white")
+    table.add_column("Project", style="yellow")
+    table.add_column("Status", style="bold")
+    table.add_column("Progress", style="green")
+    table.add_column("Last Phase", style="white", max_width=30)
+    table.add_column("Tokens", style="dim")
+    table.add_column("Created", style="dim")
+
+    for i, m in enumerate(sessions, 1):
+        progress = f"{m.progress_pct}% ({len(m.completed_phases)}/{m.total_phases})"
+        status_str = f"{m.status_emoji} {m.status}"
+        created = m.created_at[:19].replace("T", " ")  # trim microseconds
+        table.add_row(
+            str(i),
+            m.run_id,
+            m.project_name,
+            status_str,
+            progress,
+            m.last_phase_completed or "—",
+            f"{m.total_tokens:,}",
+            created,
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print("[dim]To resume a run:        python src/orchestrator.py \"<objective>\" --resume <run_id>[/dim]")
+    console.print("[dim]To rerun a phase:       python src/orchestrator.py \"<objective>\" --resume <run_id> --rerun-phase \"Phase N Name\"[/dim]")
+    sys.exit(0)
+
+
 def main():
     # Import PolicyValidator from .asd folder
     asd_path = str(Path(__file__).parent.parent / ".asd")
     if asd_path not in sys.path:
         sys.path.insert(0, asd_path)
-    
+
     from policy_validator import PolicyValidator
     PolicyValidator.validate()
     console.print("[bold green]Policy-as-Code active. Governance loaded from .asd/policies/agent_rbac.yaml[/bold green]")
 
-    parser = argparse.ArgumentParser(description="Agentic SDLC CLI v2.0")
-    parser.add_argument("objective", type=str, help="What do you want to build?")
-    parser.add_argument("--project", type=str, default="default_project", help="Project name for decision fingerprinting")
+    # ------------------------------------------------------------------
+    # CLI argument parsing (extended with resume/rerun/list flags)
+    # ------------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        description="Agentic SDLC CLI v2.0",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python src/orchestrator.py \"Build a todo app\"\n"
+            "  python src/orchestrator.py \"Build a todo app\" --resume 20260526_143022\n"
+            "  python src/orchestrator.py \"Build a todo app\" --resume 20260526_143022 --rerun-phase \"Phase 6 QA Testing\"\n"
+            "  python src/orchestrator.py --list-sessions\n"
+        ),
+    )
+    parser.add_argument(
+        "objective",
+        type=str,
+        nargs="?",
+        default=None,
+        help="What do you want to build? (required unless --list-sessions)",
+    )
+    parser.add_argument(
+        "--project",
+        type=str,
+        default="default_project",
+        help="Project name for decision fingerprinting and session grouping",
+    )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        metavar="RUN_ID",
+        help="Resume a previous run from its last successful phase (e.g. --resume 20260526_143022)",
+    )
+    parser.add_argument(
+        "--rerun-phase",
+        type=str,
+        default=None,
+        metavar="PHASE_NAME",
+        help="Force re-run a specific phase and all downstream phases (requires --resume)",
+    )
+    parser.add_argument(
+        "--list-sessions",
+        action="store_true",
+        help="List all past pipeline sessions and exit",
+    )
     args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # Session Store initialisation (needed even for --list-sessions)
+    # ------------------------------------------------------------------
+    ss = SessionStore()
+
+    if args.list_sessions:
+        _list_sessions_and_exit(ss)
+
+    if not args.objective:
+        parser.error("objective is required unless --list-sessions is specified.")
+
+    # ------------------------------------------------------------------
+    # Determine run_id and set up CheckpointManager
+    # ------------------------------------------------------------------
+    if args.resume:
+        run_id = args.resume
+        existing_cm = CheckpointManager.for_existing_run(run_id)
+        if existing_cm is None:
+            console.print(
+                f"[bold red]✗ No checkpoint data found for run_id: {run_id}[/bold red]\n"
+                "Run [cyan]python src/orchestrator.py --list-sessions[/cyan] to see available runs."
+            )
+            sys.exit(1)
+        cm = existing_cm
+        console.print(
+            Panel(
+                f"[bold yellow]⏩ RESUME MODE[/bold yellow]\n"
+                f"Run ID: [cyan]{run_id}[/cyan]\n"
+                f"Completed phases: [green]{', '.join(cm.get_completed_phases()) or 'none'}[/green]",
+                border_style="yellow",
+            )
+        )
+
+        # Handle --rerun-phase: invalidate the target phase + all downstream
+        if args.rerun_phase:
+            if args.rerun_phase not in ALL_PHASES:
+                console.print(
+                    f"[bold red]✗ Unknown phase: '{args.rerun_phase}'[/bold red]\n"
+                    f"Valid phases: {ALL_PHASES}"
+                )
+                sys.exit(1)
+            invalidated = cm.invalidate_from(args.rerun_phase, ALL_PHASES)
+            console.print(
+                Panel(
+                    f"[bold magenta]🔄 RE-RUN MODE[/bold magenta]\n"
+                    f"Target phase: [cyan]{args.rerun_phase}[/cyan]\n"
+                    f"Invalidated checkpoints: [yellow]{', '.join(invalidated)}[/yellow]",
+                    border_style="magenta",
+                )
+            )
+    else:
+        # Fresh run — generate a new run_id (same logic as ControlPlane)
+        import datetime as _dt
+        run_id = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        cm = CheckpointManager(run_id)
+
+    # ------------------------------------------------------------------
+    # Control Plane (reuse run_id for traceability)
+    # ------------------------------------------------------------------
+    cp = ControlPlane()
+    cp.run_id = run_id          # override the auto-generated run_id
+    cp.objective = args.objective
 
     print_header()
     console.print(f"[bold]Target Objective:[/bold] {args.objective}")
-    console.print(f"[bold]Project Name:[/bold] {args.project}\n")
+    console.print(f"[bold]Project Name:[/bold] {args.project}")
+    console.print(f"[bold]Run ID:[/bold] [cyan]{run_id}[/cyan]\n")
 
-    cp = ControlPlane()
-    cp.objective = args.objective
-    
-    # Register default hooks for visibility
+    # Register session in the store
+    if not args.resume:
+        ss.create(run_id, args.project, args.objective)
+    # (If resuming, the session record already exists — update_phase_complete handles updates)
+
+    # Register default hooks
     cp.hooks.register("pre_phase_start", lambda name, role: console.print(f"[bold cyan]HOOK: Starting {name} as {role}[/bold cyan]"))
     cp.hooks.register("post_phase_complete", lambda name, summary: console.print(f"[bold green]HOOK: Completed {name}. {summary}[/bold green]"))
     cp.hooks.register("on_gate_evaluate", lambda name, chash: console.print(f"[bold red]HOOK: Evaluating Gate {name} (Context Hash: {chash})[/bold red]"))
     cp.hooks.register("on_gate_fail", lambda name, reason: log_audit_decision(f"GATE_FAIL: {name}", f"Reason: {reason}", "audit.md"))
 
-    # Artifact Manager for Context Isolation
+    # Artifact Manager, Reflection Manager
     am = ArtifactManager()
     rm = ReflectionManager(console)
-    
-    # Initialize Memory Layer
-    store = BaselineStore()
-    extractor = FingerprintExtractor(output_dir=".", run_id=cp.run_id, project_name=args.project)
+
+    # Memory Layer
+    baseline_store = BaselineStore()
+    extractor = FingerprintExtractor(output_dir=".", run_id=run_id, project_name=args.project)
     detector = DriftDetector()
-    
+
     model_name = os.getenv("MODEL_NAME", "local-qwen")
     cost_tracker = CostTracker(model=model_name)
 
     instructions = get_framework_instructions()
 
-    # Phase 1: Requirements
-    req_output = run_phase(cp, "Phase 1 Requirements", args.objective, instructions)
-    am.save("Phase 1 Requirements", req_output)
-
-    # Phase 1.5: Skill & Tool Research (Framework Evolution)
-    sr = SkillResearcher(console)
-    evolved = sr.analyze_and_evolve(req_output)
-    if evolved:
-        # Reload AGENT_ROLES if the policy was updated
-        from config_loader import load_agent_roles
-        global AGENT_ROLES
-        AGENT_ROLES = load_agent_roles()
-        console.print("[bold green]🔄 Agent Roles reloaded with newly acquired skills.[/bold green]")
-
-    tr = ToolResearcher(console)
-    tr.analyze_and_discover(req_output, AVAILABLE_TOOLS)
-
-    # Phase 2 & Gate 1 (Resilient)
-    arch_output = execute_phase_with_resilience(
-        cp,
-        phase_name="Phase 2 Architecture",
-        phase_objective="Generate a simple schema and architecture components for the project. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# architecture.md`).",
-        context=am.get("Phase 1 Requirements"),
-        gate_name="Architecture Review",
-        gate_objective="Ensure the architecture meets the requirements and is secure. If missing CORS or any security middleware, FAIL the gate.",
-        reflection_manager=rm
-    )
-    am.save("Phase 2 Architecture", arch_output)
-
-    # Phase 3: Backend
-    backend_output = run_phase(
-        cp,
-        "Phase 3 Backend", 
-        "Implement the backend code based strictly on the architecture design. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# backend/app/main.py`).", 
-        am.get("Phase 2 Architecture")
-    )
-    am.save("Phase 3 Backend", backend_output)
-    
-    # Phase 4: Frontend
-    frontend_output = run_phase(
-        cp,
-        "Phase 4 Frontend", 
-        "Implement the frontend application code to securely communicate with the backend. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `// frontend/src/App.tsx`).", 
-        am.get("Phase 1 Requirements", "Phase 3 Backend")
-    )
-    am.save("Phase 4 Frontend", frontend_output)
-
-    # Phase 5: Infrastructure
-    infra_output = run_phase(
-        cp,
-        "Phase 5 Infrastructure", 
-        "Write Dockerfiles for the backend and frontend, and a root docker-compose.yml to run the full stack including the database. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path (e.g., `# docker-compose.yml`).", 
-        am.get("Phase 2 Architecture", "Phase 3 Backend", "Phase 4 Frontend")
-    )
-    am.save("Phase 5 Infrastructure", infra_output)
-
-    # Phase 6 & Gate 2 (Resilient)
-    qa_output = execute_phase_with_resilience(
-        cp,
-        phase_name="Phase 6 QA Testing",
-        phase_objective="Write a test suite for the backend application using pytest. IMPORTANT: You must write tests that physically execute. VERY IMPORTANT: Every code block MUST start with a comment containing the file path.",
-        context=am.get("Phase 3 Backend"),
-        gate_name="QA Review",
-        gate_objective="Evaluate the test cases to ensure they adequately cover the backend business logic and authentication.",
-        reflection_manager=rm
-    )
-    am.save("Phase 6 QA Testing", qa_output)
-
-    # Phase 7 & Gate 3 (Resilient)
-    sec_output = execute_phase_with_resilience(
-        cp,
-        phase_name="Phase 7 Security",
-        phase_objective="Perform a security audit of the backend code and provide any secured file overwrites if vulnerabilities exist. VERY IMPORTANT: Every single code block MUST start with a comment containing the exact file path.",
-        context=am.get("Phase 3 Backend"),
-        gate_name="Security Review",
-        gate_objective="Validate that the backend code does not contain injection or auth vulnerabilities.",
-        reflection_manager=rm
-    )
-    am.save("Phase 7 Security", sec_output)
-
-    # Phase 8: Deployment & Documentation
-    deploy_output = run_phase(
-        cp,
-        "Phase 8 Deployment", 
-        "Write the final `README.md` that explains exactly how a user can build, start, and execute the application locally. VERY IMPORTANT: Every code block MUST start with a comment containing the file path.", 
-        am.get("Phase 5 Infrastructure", "Phase 6 QA Testing")
-    )
-    am.save("Phase 8 Deployment", deploy_output)
-
-    # Memory Layer: Drift Detection
     try:
-        # Populate CostTracker from Control Plane
+        # ------------------------------------------------------------------
+        # Phase 1: Requirements
+        # ------------------------------------------------------------------
+        req_output = _run_phase_checkpointed(
+            cp, "Phase 1 Requirements",
+            lambda: run_phase(cp, "Phase 1 Requirements", args.objective, instructions),
+            am, cm, ss,
+        )
+
+        # Phase 1.5: Skill & Tool Research (Framework Evolution)
+        # Only run if Phase 1 was NOT loaded from cache (i.e. fresh execution)
+        if not cm.load("Phase 1 Requirements") or args.rerun_phase == "Phase 1 Requirements":
+            sr = SkillResearcher(console)
+            evolved = sr.analyze_and_evolve(req_output)
+            if evolved:
+                from config_loader import load_agent_roles
+                global AGENT_ROLES
+                AGENT_ROLES = load_agent_roles()
+                console.print("[bold green]🔄 Agent Roles reloaded with newly acquired skills.[/bold green]")
+            tr = ToolResearcher(console)
+            tr.analyze_and_discover(req_output, AVAILABLE_TOOLS)
+
+        # ------------------------------------------------------------------
+        # Phase 2 & Gate 1 (Resilient)
+        # ------------------------------------------------------------------
+        arch_output = _run_phase_checkpointed(
+            cp, "Phase 2 Architecture",
+            lambda: execute_phase_with_resilience(
+                cp,
+                phase_name="Phase 2 Architecture",
+                phase_objective=(
+                    "Generate a simple schema and architecture components for the project. "
+                    "VERY IMPORTANT: Every single code block MUST start with a comment containing "
+                    "the exact file path (e.g., `# architecture.md`)."
+                ),
+                context=am.get("Phase 1 Requirements"),
+                gate_name="Architecture Review",
+                gate_objective="Ensure the architecture meets the requirements and is secure. If missing CORS or any security middleware, FAIL the gate.",
+                reflection_manager=rm,
+            ),
+            am, cm, ss,
+        )
+
+        # Record gate result
+        ss.record_gate(run_id, "Architecture Review", "PASS")
+
+        # ------------------------------------------------------------------
+        # Phase 3: Backend
+        # ------------------------------------------------------------------
+        backend_output = _run_phase_checkpointed(
+            cp, "Phase 3 Backend",
+            lambda: run_phase(
+                cp,
+                "Phase 3 Backend",
+                "Implement the backend code based strictly on the architecture design. "
+                "VERY IMPORTANT: Every single code block MUST start with a comment containing "
+                "the exact file path (e.g., `# backend/app/main.py`).",
+                am.get("Phase 2 Architecture"),
+            ),
+            am, cm, ss,
+        )
+
+        # ------------------------------------------------------------------
+        # Phase 4: Frontend
+        # ------------------------------------------------------------------
+        frontend_output = _run_phase_checkpointed(
+            cp, "Phase 4 Frontend",
+            lambda: run_phase(
+                cp,
+                "Phase 4 Frontend",
+                "Implement the frontend application code to securely communicate with the backend. "
+                "VERY IMPORTANT: Every single code block MUST start with a comment containing "
+                "the exact file path (e.g., `// frontend/src/App.tsx`).",
+                am.get("Phase 1 Requirements", "Phase 3 Backend"),
+            ),
+            am, cm, ss,
+        )
+
+        # ------------------------------------------------------------------
+        # Phase 5: Infrastructure
+        # ------------------------------------------------------------------
+        infra_output = _run_phase_checkpointed(
+            cp, "Phase 5 Infrastructure",
+            lambda: run_phase(
+                cp,
+                "Phase 5 Infrastructure",
+                "Write Dockerfiles for the backend and frontend, and a root docker-compose.yml to run "
+                "the full stack including the database. VERY IMPORTANT: Every single code block MUST "
+                "start with a comment containing the exact file path (e.g., `# docker-compose.yml`).",
+                am.get("Phase 2 Architecture", "Phase 3 Backend", "Phase 4 Frontend"),
+            ),
+            am, cm, ss,
+        )
+
+        # ------------------------------------------------------------------
+        # Phase 6 & Gate 2 (Resilient)
+        # ------------------------------------------------------------------
+        qa_output = _run_phase_checkpointed(
+            cp, "Phase 6 QA Testing",
+            lambda: execute_phase_with_resilience(
+                cp,
+                phase_name="Phase 6 QA Testing",
+                phase_objective=(
+                    "Write a test suite for the backend application using pytest. "
+                    "IMPORTANT: You must write tests that physically execute. "
+                    "VERY IMPORTANT: Every code block MUST start with a comment containing the file path."
+                ),
+                context=am.get("Phase 3 Backend"),
+                gate_name="QA Review",
+                gate_objective="Evaluate the test cases to ensure they adequately cover the backend business logic and authentication.",
+                reflection_manager=rm,
+            ),
+            am, cm, ss,
+        )
+        ss.record_gate(run_id, "QA Review", "PASS")
+
+        # ------------------------------------------------------------------
+        # Phase 7 & Gate 3 (Resilient)
+        # ------------------------------------------------------------------
+        sec_output = _run_phase_checkpointed(
+            cp, "Phase 7 Security",
+            lambda: execute_phase_with_resilience(
+                cp,
+                phase_name="Phase 7 Security",
+                phase_objective=(
+                    "Perform a security audit of the backend code and provide any secured file overwrites "
+                    "if vulnerabilities exist. VERY IMPORTANT: Every single code block MUST start with a "
+                    "comment containing the exact file path."
+                ),
+                context=am.get("Phase 3 Backend"),
+                gate_name="Security Review",
+                gate_objective="Validate that the backend code does not contain injection or auth vulnerabilities.",
+                reflection_manager=rm,
+            ),
+            am, cm, ss,
+        )
+        ss.record_gate(run_id, "Security Review", "PASS")
+
+        # ------------------------------------------------------------------
+        # Phase 8: Deployment & Documentation
+        # ------------------------------------------------------------------
+        deploy_output = _run_phase_checkpointed(
+            cp, "Phase 8 Deployment",
+            lambda: run_phase(
+                cp,
+                "Phase 8 Deployment",
+                "Write the final `README.md` that explains exactly how a user can build, start, and "
+                "execute the application locally. VERY IMPORTANT: Every code block MUST start with a "
+                "comment containing the file path.",
+                am.get("Phase 5 Infrastructure", "Phase 6 QA Testing"),
+            ),
+            am, cm, ss,
+        )
+
+        ss.mark_complete(run_id)
+        console.print("[bold green]✅ Session marked complete in session store.[/bold green]")
+
+    except (KeyboardInterrupt, SystemExit):
+        ss.mark_partial(run_id)
+        console.print(
+            Panel(
+                f"[bold yellow]⏸️  Pipeline interrupted.[/bold yellow]\n"
+                f"Session [cyan]{run_id}[/cyan] marked as [yellow]partial[/yellow].\n"
+                f"Resume with: [white]python src/orchestrator.py \"{args.objective}\" --resume {run_id}[/white]",
+                border_style="yellow",
+            )
+        )
+        raise
+    except Exception as pipeline_err:
+        ss.mark_failed(run_id)
+        console.print(
+            Panel(
+                f"[bold red]❌ Pipeline failed: {pipeline_err}[/bold red]\n"
+                f"Session [cyan]{run_id}[/cyan] marked as [red]failed[/red].\n"
+                f"Resume with: [white]python src/orchestrator.py \"{args.objective}\" --resume {run_id}[/white]",
+                border_style="red",
+            )
+        )
+        raise
+
+    # ------------------------------------------------------------------
+    # Memory Layer: Drift Detection
+    # ------------------------------------------------------------------
+    try:
         econ_summary = cp.get_economics_summary()
         for phase_name, data in econ_summary.items():
             cost_tracker.record_phase(
@@ -484,35 +804,37 @@ def main():
                 agent_role=data["agent_role"],
                 input_tokens=data["input_tokens"],
                 output_tokens=data["output_tokens"],
-                duration_seconds=data["duration_seconds"]
+                duration_seconds=data["duration_seconds"],
             )
         cost_tracker.write_report()
 
         console.print("\n[bold cyan]🧠 Memory Layer: Extracting Decision Fingerprint...[/bold cyan]")
         current_fingerprint = extractor.extract()
-        
-        baseline = store.get_baseline()
+
+        baseline = baseline_store.get_baseline()
         if baseline:
             console.print("[yellow]🔍 Comparing with project baseline...[/yellow]")
             report = detector.detect(baseline, current_fingerprint)
-            
+
             if report.has_drift:
                 console.print(Panel(
                     f"[bold red]⚠️ Drift Detected![/bold red]\n"
                     f"Breaking Changes: [red]{report.breaking_count}[/red]\n"
                     f"Warnings: [yellow]{report.warning_count}[/yellow]\n\n"
-                    + "\n".join([f"• [bold]{i.field}[/bold]: {i.old_value} -> {i.new_value} ({i.severity})" for i in report.issues]),
+                    + "\n".join(
+                        [f"• [bold]{i.field}[/bold]: {i.old_value} -> {i.new_value} ({i.severity})"
+                         for i in report.issues]
+                    ),
                     title="Decision Drift Report",
-                    border_style="red"
+                    border_style="red",
                 ))
                 log_audit_decision("[MEMORY] Drift Detection", f"Drift detected: {len(report.issues)} changes across architecture, infra, or quality.")
-                
-                # Write RBAC Lock if breaking
+
                 if report.breaking_count > 0:
                     rbac_path = Path("logs/rbac_suggestions.md")
                     rbac_path.parent.mkdir(exist_ok=True)
                     with open(rbac_path, "a", encoding="utf-8") as rf:
-                        rf.write(f"## Run ID: {cp.run_id}\n")
+                        rf.write(f"## Run ID: {run_id}\n")
                         rf.write(report.generate_rbac_snippet())
                     console.print(f"[dim]  ↳ RBAC lock suggested in logs/rbac_suggestions.md[/dim]")
             else:
@@ -522,35 +844,37 @@ def main():
             console.print("[bold cyan]✨ Baseline established in .asd/fingerprints/[/bold cyan]")
             log_audit_decision("[MEMORY] Establishing Baseline", f"First successful run for {args.project}. Baseline established.")
 
-        store.save(current_fingerprint)
+        baseline_store.save(current_fingerprint)
         console.print(f"[dim]↳ Fingerprint saved to: .asd/fingerprints/baseline.json[/dim]\n")
     except Exception as e:
-        # User Story requirement: Memory Layer never crashes the pipeline
         log_audit_decision("[MEMORY] Error", f"Memory Layer failed silently: {str(e)}")
         console.print(f"[dim red]⚠️ Memory Layer encountered a silent error (logged to audit).[/dim red]")
 
     cp.print_summary(console)
     report_path = cp.write_report()
 
-    # Phase 3.1: ROI Tracker
+    # ROI Tracker
     rt = ROITracker(cost_tracker)
     roi_md = rt.calculate_roi()
     rt.append_to_report(report_path, roi_md)
 
-    # Phase 3.2: Visual Traceability
+    # Visual Traceability
     mermaid_md = Visualizer.generate_mermaid(cp.steps)
     Visualizer.append_to_report(report_path, mermaid_md)
 
-    # Phase 3.3: Knowledge Nugget Factory
+    # Knowledge Nugget Factory
     ca = ContentAgent(console)
     ca.generate_nuggets(report_path)
 
     console.print(Panel(
         "[bold green]Agentic SDLC v2.0 Completed All Phases Successfully![/bold green]\n"
+        f"Run ID: [cyan]{run_id}[/cyan]\n"
         f"Check [cyan]logs/audit.md[/cyan] for the audit trail.\n"
-        f"Check [cyan]{report_path}[/cyan] for the full Control Plane trace.",
-        border_style="green"
+        f"Check [cyan]{report_path}[/cyan] for the full Control Plane trace.\n"
+        f"Checkpoints: [cyan].asd/checkpoints/{run_id}/[/cyan]",
+        border_style="green",
     ))
+
 
 if __name__ == "__main__":
     main()
