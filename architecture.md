@@ -9,11 +9,12 @@ The ASD Orchestrator is a **Control Plane** that sits between an LLM (the Brain)
 ### 1. The Core Orchestration Engine (`src/orchestrator.py`)
 -   **8-Phase SDLC Waterfall**: Manages the progression from Requirements to Deployment.
 -   **Sub-Agent Context Isolation (`ArtifactManager`)**: Prevents "Context Pollution" by discarding the intermediate reasoning/thinking chains of sub-agents. Only finalized markdown artifacts are passed to the next phase's input.
--   **Autonomous Auto-Healing**: Handles gate failures by feeding critique back into the agent's prompt for a correction loop.
+-   **Self-Healing Flywheel (`src/self_healing.py`)**: An autonomic MAPE-K loop that independently monitors, diagnoses, and plans recovery for software delivery failures.
 -   **Human-in-the-Loop (HITL)**: Provides a fallback mechanism for manual steering when automated healing fails.
 
 ### 2. The Control Plane Layer (`src/control_plane.py`)
 -   **Real-time Observability**: Captures 4 types of telemetry for every single step (Decision Trace, Context Snapshot, Tool Selection, Intent-Execution Diff).
+-   **Glass Box Tracing**: Specifically designed for **EU AI Act Article 13 (Transparency)**, storing immutable JSON traces of all autonomic healing decisions in `traces/`.
 -   **Deterministic Lifecycle Hooks (`HookManager`)**: Fires system-level events (`pre_phase`, `post_phase`, `on_gate_evaluate`, `on_gate_fail`) that operate independently of LLM prompts.
 -   **Three-Tier Context Compression (`ContextCompressor`)**: Prevents context window overflows for local models (e.g., Qwen) by applying tiered compression:
     -   **Tier 1 (MicroCompact)**: Strips comments, formatting, and empty lines via regex.
@@ -65,6 +66,7 @@ graph TD
 
 ## Failure Recovery Modes
 
-1.  **Autonomous Healing**: Agent attempts to fix its own code based on Gatekeeper's critique (max retries configurable).
-2.  **Human-in-the-Loop**: If retries fail, the system pauses and asks the human for steering feedback, force pass, or abortion.
-3.  **Silent Drift Mitigation**: If the Memory Layer detects a breaking framework switch, it alerts the user in the audit logs before the drift becomes permanent.
+1.  **Self-Healing Flywheel (Autonomic)**: The system independently diagnoses failures (LINT, INFRA, LOGIC) and executes a MAPE-K recovery plan before re-engaging the agent.
+2.  **Autonomous Healing (Agentic)**: Agent attempts to fix its own code based on Gatekeeper's critique and the Flywheel's diagnostic strategy.
+3.  **Human-in-the-Loop**: If retries fail, the system pauses and asks the human for steering feedback, force pass, or abortion.
+4.  **Silent Drift Mitigation**: If the Memory Layer detects a breaking framework switch, it alerts the user in the audit logs before the drift becomes permanent.

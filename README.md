@@ -40,7 +40,13 @@ The **Memory Layer** ensures long-term project integrity. The first run establis
 ### 4. The Configuration Layer (Cognitive RBAC)
 Managed via `config/`, governing **Identity** (Personas), **Capability** (Tool access), and **Alignment** (Global SDLC rules).
 
-### 5. The Evolution Layer (Autonomous Intelligence)
+### 5. The Self-Healing Layer (Autonomic Flywheel)
+The **Self-Healing Flywheel** (MAPE-K Loop) ensures the orchestrator can autonomously recover from development failures:
+-   **Intelligent Monitoring**: Intercepts LINT, INFRA, LOGIC, and AMBIGUITY failures.
+-   **MAPE-K Diagnostics**: Autonomously plans and executes recovery strategies before re-engaging agents.
+-   **Glass Box Transparency**: Immutable JSON traces for every healing event (EU AI Act Article 13 compliant).
+
+### 6. The Evolution Layer (Autonomous Intelligence)
 The framework's "Evolution Flywheel" allows it to build its own intelligence:
 -   **Skill Researcher**: Identifies capability gaps and conducts deep research via the **External Research Loop** (Tavily integration).
 -   **Benchmarking Arena**: A sovereign sandbox (`BenchmarkingArena`) that verifies new roles via automated smoke tests before policy integration.

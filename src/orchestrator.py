@@ -66,6 +66,7 @@ from services.content_agent import ContentAgent
 from services.visualizer import Visualizer
 from services.roi_tracker import ROITracker
 from services.security_scanner import SecurityScanner
+from self_healing import SelfHealer
 from mcp_server import AVAILABLE_TOOLS
 
 def print_header():
@@ -292,6 +293,7 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
     """
     current_objective = phase_objective
     retries = 0
+    healer = SelfHealer(trace_dir="traces")
     
     # Pre-compress static input context before the loop to save cycles on retries
     compressed_context, tier = cp.compressor.compress(context, max_tokens=8000, qwen_client=qwen)
@@ -308,41 +310,71 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
         passed, reasoning = run_gate(cp, gate_name, gate_objective, output)
         
         if passed:
+            healer.metrics["successes"] += 1
             return output
             
+        # [SELF-HEALING FLYWHEEL]
         retries += 1
-        if retries <= max_retries:
-            console.print(f"\n[bold yellow]⚠️  Gate Failed. Triggering Auto-Heal (Retry {retries}/{max_retries})...[/bold yellow]")
-            console.print(f"[dim]Passing Gatekeeper's reasoning back to the {phase_name} agent...[/dim]\n")
-            current_objective = phase_objective + f"\n\n[CRITICAL CORRECTION REQUIRED]\nThe Gatekeeper rejected your previous code. Reason:\n{reasoning}\n\nPlease explicitly fix these issues and regenerate the code."
-        else:
-            console.print(f"\n[bold red]❌ Gate Failed {max_retries} times. Auto-Heal Exhausted.[/bold red]")
-            console.print(Panel("Human-in-the-loop intervention required.", border_style="red"))
+        failure_context = {
+            "output": output,
+            "reasoning": reasoning,
+            "phase": phase_name,
+            "exit_code": 1 if not passed else 0
+        }
+        
+        failure = healer.monitor(failure_context)
+        if failure:
+            diagnosis = healer.diagnose(failure)
+            plan = healer.plan(diagnosis)
             
-            if os.getenv("NON_INTERACTIVE"):
+            trace_data = {
+                "timestamp": datetime.now().isoformat(),
+                "failure": failure,
+                "diagnosis": diagnosis,
+                "plan": plan,
+                "retry_count": retries
+            }
+            healer.log_trace(trace_data)
+            
+            console.print(f"\n[bold yellow]⚠️  Self-Healing Flywheel Engaged: {diagnosis['category']} Detected.[/bold yellow]")
+            console.print(f"[dim]Strategy: {plan['strategy']}[/dim]\n")
+            
+            if retries <= max_retries:
+                current_objective = phase_objective + f"\n\n[CRITICAL CORRECTION REQUIRED]\nDiagnosis: {diagnosis['category']}\nReason: {reasoning}\nStrategy: {plan['strategy']}\n\nPlease apply the correction and regenerate."
+            else:
+                healer.metrics["failures"] += 1
+                suggestion = healer.get_adaptive_suggestion()
+                if suggestion:
+                    console.print(f"[bold red]{suggestion}[/bold red]")
+                    
+                console.print(f"\n[bold red]❌ Self-Healing exhausted after {max_retries} retries.[/bold red]")
+                console.print(Panel("Human-in-the-loop intervention required.", border_style="red"))
+            
+            if os.getenv("NON_INTERACTIVE") and retries > max_retries:
                 console.print("[yellow]NON_INTERACTIVE mode: Auto-aborting pipeline.[/yellow]")
                 sys.exit(1)
 
-            choice = Prompt.ask(
-                "\n[bold]Action Required[/bold]\n[1] Abort Pipeline\n[2] Provide Manual Feedback to Agent (Retry)\n[3] Force Pass Gate\nChoice", 
-                choices=["1", "2", "3"], 
-                default="1"
-            )
-            
-            if choice == "1":
-                console.print("[red]Pipeline aborted by user.[/red]")
-                cp.print_summary(console)
-                report_path = cp.write_report()
-                console.print(f"[cyan]📄 Control Plane report saved to: {report_path}[/cyan]")
-                sys.exit(1)
-            elif choice == "2":
-                feedback = Prompt.ask("\n[cyan]Enter your specific feedback for the agent[/cyan]")
-                current_objective = phase_objective + f"\n\n[HUMAN ARCHITECT FEEDBACK]\n{feedback}\n\nPlease apply this feedback and regenerate."
-                retries -= 1  # Give it one more try
-                console.print("\n[bold yellow]Restarting phase with human feedback...[/bold yellow]\n")
-            elif choice == "3":
-                console.print("\n[bold yellow]Forcing pass by human override...[/bold yellow]\n")
-                return output
+            if retries > max_retries:
+                choice = Prompt.ask(
+                    "\n[bold]Action Required[/bold]\n[1] Abort Pipeline\n[2] Provide Manual Feedback to Agent (Retry)\n[3] Force Pass Gate\nChoice", 
+                    choices=["1", "2", "3"], 
+                    default="1"
+                )
+                
+                if choice == "1":
+                    console.print("[red]Pipeline aborted by user.[/red]")
+                    cp.print_summary(console)
+                    report_path = cp.write_report()
+                    console.print(f"[cyan]📄 Control Plane report saved to: {report_path}[/cyan]")
+                    sys.exit(1)
+                elif choice == "2":
+                    feedback = Prompt.ask("\n[cyan]Enter your specific feedback for the agent[/cyan]")
+                    current_objective = phase_objective + f"\n\n[HUMAN ARCHITECT FEEDBACK]\n{feedback}\n\nPlease apply this feedback and regenerate."
+                    retries -= 1  # Give it one more try
+                    console.print("\n[bold yellow]Restarting phase with human feedback...[/bold yellow]\n")
+                elif choice == "3":
+                    console.print("\n[bold yellow]Forcing pass by human override...[/bold yellow]\n")
+                    return output
                 
     return ""
 
