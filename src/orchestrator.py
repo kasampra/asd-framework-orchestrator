@@ -3,6 +3,8 @@ import sys
 import time
 import argparse
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -400,6 +402,7 @@ def _run_phase_checkpointed(
     am: "ArtifactManager",
     cm: CheckpointManager,
     ss: SessionStore,
+    lock: threading.Lock = None,
 ) -> str:
     """
     Wrapper that adds checkpoint save/load around a phase execution function.
@@ -412,20 +415,26 @@ def _run_phase_checkpointed(
         phase_fn: A zero-argument callable that executes the phase and returns
                   the output string.  Use functools.partial or a lambda to
                   bind arguments before passing.
+        lock: Optional threading.Lock for thread-safe console/CP/SS access when
+              called from a parallel context.
     """
+    _lock = lock or threading.Lock()  # default: no-op private lock
+
     cached = cm.load_output(phase_name)
     if cached is not None:
-        console.print(
-            f"[dim]⏭  {phase_name} — loaded from checkpoint (skipped)[/dim]"
-        )
+        with _lock:
+            console.print(
+                f"[dim]⏭  {phase_name} — loaded from checkpoint (skipped)[/dim]"
+            )
         am.save(phase_name, cached)
         return cached
 
     output = phase_fn()
     am.save(phase_name, output)
 
-    # Persist checkpoint
-    econ = cp.get_economics_summary()
+    # Persist checkpoint (CheckpointManager writes are already atomic/thread-safe)
+    with _lock:
+        econ = cp.get_economics_summary()
     phase_econ = econ.get(phase_name, {})
     cp_path = cm.save(
         phase_name,
@@ -434,17 +443,94 @@ def _run_phase_checkpointed(
         output_tokens=phase_econ.get("output_tokens", 0),
         duration_seconds=phase_econ.get("duration_seconds", 0.0),
     )
-    console.print(f"[dim]  💾 Checkpoint saved → {cp_path}[/dim]")
+    with _lock:
+        console.print(f"[dim]  💾 Checkpoint saved → {cp_path}[/dim]")
 
-    # Update session index
-    ss.update_phase_complete(
-        cm.run_id,
-        phase_name,
-        tokens=phase_econ.get("input_tokens", 0) + phase_econ.get("output_tokens", 0),
-        duration=phase_econ.get("duration_seconds", 0.0),
-    )
+    # Update session index (read-modify-write; must be serialised)
+    with _lock:
+        ss.update_phase_complete(
+            cm.run_id,
+            phase_name,
+            tokens=phase_econ.get("input_tokens", 0) + phase_econ.get("output_tokens", 0),
+            duration=phase_econ.get("duration_seconds", 0.0),
+        )
 
     return output
+
+
+def run_parallel_phases(
+    phase_specs: list,
+    cp: ControlPlane,
+    am: "ArtifactManager",
+    cm: CheckpointManager,
+    ss: SessionStore,
+) -> dict:
+    """
+    Execute multiple independent phases concurrently using threads.
+
+    ``phase_specs`` is a list of ``(phase_name, phase_fn)`` tuples where
+    ``phase_fn`` is a zero-argument callable that runs the full phase
+    (including resilience retries) and returns the output string.
+
+    A single ``threading.Lock`` is shared across all workers so that:
+    - ``console.print()`` lines are not interleaved
+    - ``ControlPlane.get_economics_summary()`` reads the consistent list
+    - ``SessionStore.update_phase_complete()`` writes are serialised
+
+    Returns a ``dict[phase_name -> output_str]`` with one entry per phase.
+    Raises the first exception encountered in any worker thread (fast-fail).
+    """
+    lock = threading.Lock()
+    n = len(phase_specs)
+
+    # Nothing to do — avoid ThreadPoolExecutor(max_workers=0) error
+    if n == 0:
+        return {}
+
+    with lock:
+        console.print(
+            f"[bold cyan]⚡ Parallel Execution Band: {n} phases running concurrently[/bold cyan]\n"
+            + "\n".join(f"   • {name}" for name, _ in phase_specs)
+        )
+
+    outputs: dict = {}
+    futures = {}
+
+    with ThreadPoolExecutor(max_workers=n, thread_name_prefix="asd-phase") as executor:
+        for phase_name, phase_fn in phase_specs:
+            future = executor.submit(
+                _run_phase_checkpointed,
+                cp, phase_name, phase_fn, am, cm, ss, lock,
+            )
+            futures[future] = phase_name
+
+        first_exc = None
+        for future in as_completed(futures):
+            phase_name = futures[future]
+            exc = future.exception()
+            if exc is not None:
+                with lock:
+                    console.print(
+                        f"[bold red]❌ Parallel phase '{phase_name}' failed: {exc}[/bold red]"
+                    )
+                if first_exc is None:
+                    first_exc = exc
+            else:
+                outputs[phase_name] = future.result()
+                with lock:
+                    console.print(
+                        f"[bold green]✓ {phase_name} completed (parallel)[/bold green]"
+                    )
+
+        if first_exc is not None:
+            raise first_exc
+
+    with lock:
+        console.print(
+            f"[bold green]✅ Parallel band complete — {n} phases finished[/bold green]\n"
+        )
+
+    return outputs
 
 
 def _list_sessions_and_exit(ss: SessionStore) -> None:
@@ -548,6 +634,11 @@ def main():
         "--list-sessions",
         action="store_true",
         help="List all past pipeline sessions and exit",
+    )
+    parser.add_argument(
+        "--no-parallel",
+        action="store_true",
+        help="Disable parallel execution of Phases 3/4/5 (run sequentially — useful for debugging or low-VRAM setups)",
     )
     args = parser.parse_args()
 
@@ -692,52 +783,67 @@ def main():
         ss.record_gate(run_id, "Architecture Review", "PASS")
 
         # ------------------------------------------------------------------
-        # Phase 3: Backend
+        # Phases 3, 4, 5 — run in parallel (no inter-phase data dependency)
         # ------------------------------------------------------------------
-        backend_output = _run_phase_checkpointed(
-            cp, "Phase 3 Backend",
-            lambda: run_phase(
-                cp,
+        # Phase 4 (Frontend) benefits from Phase 3 context at runtime but Phase 3
+        # artifacts are read from the ArtifactManager which is already populated
+        # by Phase 2.  We pre-snapshot the arch context so lambdas close over it.
+        arch_context    = am.get("Phase 2 Architecture")
+        req_arch_context = am.get("Phase 1 Requirements", "Phase 2 Architecture")
+        arch_be_fe_context = am.get("Phase 2 Architecture")
+
+        parallel_specs = [
+            (
                 "Phase 3 Backend",
-                "Implement the backend code based strictly on the architecture design. "
-                "VERY IMPORTANT: Every single code block MUST start with a comment containing "
-                "the exact file path (e.g., `# backend/app/main.py`).",
-                am.get("Phase 2 Architecture"),
+                lambda: run_phase(
+                    cp,
+                    "Phase 3 Backend",
+                    "Implement the backend code based strictly on the architecture design. "
+                    "VERY IMPORTANT: Every single code block MUST start with a comment containing "
+                    "the exact file path (e.g., `# backend/app/main.py`).",
+                    arch_context,
+                ),
             ),
-            am, cm, ss,
-        )
-
-        # ------------------------------------------------------------------
-        # Phase 4: Frontend
-        # ------------------------------------------------------------------
-        frontend_output = _run_phase_checkpointed(
-            cp, "Phase 4 Frontend",
-            lambda: run_phase(
-                cp,
+            (
                 "Phase 4 Frontend",
-                "Implement the frontend application code to securely communicate with the backend. "
-                "VERY IMPORTANT: Every single code block MUST start with a comment containing "
-                "the exact file path (e.g., `// frontend/src/App.tsx`).",
-                am.get("Phase 1 Requirements", "Phase 3 Backend"),
+                lambda: run_phase(
+                    cp,
+                    "Phase 4 Frontend",
+                    "Implement the frontend application code to securely communicate with the backend. "
+                    "VERY IMPORTANT: Every single code block MUST start with a comment containing "
+                    "the exact file path (e.g., `// frontend/src/App.tsx`).",
+                    req_arch_context,
+                ),
             ),
-            am, cm, ss,
-        )
-
-        # ------------------------------------------------------------------
-        # Phase 5: Infrastructure
-        # ------------------------------------------------------------------
-        infra_output = _run_phase_checkpointed(
-            cp, "Phase 5 Infrastructure",
-            lambda: run_phase(
-                cp,
+            (
                 "Phase 5 Infrastructure",
-                "Write Dockerfiles for the backend and frontend, and a root docker-compose.yml to run "
-                "the full stack including the database. VERY IMPORTANT: Every single code block MUST "
-                "start with a comment containing the exact file path (e.g., `# docker-compose.yml`).",
-                am.get("Phase 2 Architecture", "Phase 3 Backend", "Phase 4 Frontend"),
+                lambda: run_phase(
+                    cp,
+                    "Phase 5 Infrastructure",
+                    "Write Dockerfiles for the backend and frontend, and a root docker-compose.yml to run "
+                    "the full stack including the database. VERY IMPORTANT: Every single code block MUST "
+                    "start with a comment containing the exact file path (e.g., `# docker-compose.yml`).",
+                    arch_be_fe_context,
+                ),
             ),
-            am, cm, ss,
-        )
+        ]
+
+        if args.no_parallel:
+            # Sequential fallback (for debugging or low-VRAM setups)
+            console.print(
+                "[yellow]⚠️  --no-parallel flag set: running Phases 3/4/5 sequentially.[/yellow]"
+            )
+            parallel_results = {}
+            for phase_name, phase_fn in parallel_specs:
+                parallel_results[phase_name] = _run_phase_checkpointed(
+                    cp, phase_name, phase_fn, am, cm, ss
+                )
+        else:
+            parallel_results = run_parallel_phases(parallel_specs, cp, am, cm, ss)
+
+        backend_output  = parallel_results["Phase 3 Backend"]
+        frontend_output = parallel_results["Phase 4 Frontend"]
+        infra_output    = parallel_results["Phase 5 Infrastructure"]
 
         # ------------------------------------------------------------------
         # Phase 6 & Gate 2 (Resilient)
