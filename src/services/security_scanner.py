@@ -2,6 +2,7 @@ import os
 import subprocess
 import json
 import re
+import shutil
 from pathlib import Path
 from rich.console import Console
 
@@ -10,11 +11,14 @@ class SecurityScanner:
 
     def __init__(self, console: Console = None):
         self.console = console or Console()
-        self.bandit_path = r"C:\Users\Praveen Kasam\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\LocalCache\local-packages\Python313\Scripts\bandit.exe"
+        self.bandit_path = shutil.which("bandit")
 
     def run_sast_scan(self, target_dir: str) -> dict:
         """Runs Bandit SAST scan on the target directory."""
         self.console.print(f"  🔍 [dim]Running Bandit SAST scan on {target_dir}...[/dim]")
+        if not self.bandit_path:
+            self.console.print("  ⚠️  [yellow]Bandit SAST scanner not found in PATH. Skipping scan.[/yellow]")
+            return {"results": [], "errors": ["Bandit executable not found in PATH."]}
         try:
             # -f json -r (recursive)
             result = subprocess.run(

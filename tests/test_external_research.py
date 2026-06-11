@@ -10,14 +10,19 @@ from core.skill_researcher import SkillResearcher
 
 class TestExternalResearch(unittest.TestCase):
 
+    @patch('core.skill_researcher.PatternCatalog')
     @patch('core.skill_researcher.delegate_to_qwen_agent')
     @patch('services.web_researcher.WebResearcher.conduct_research')
-    def test_research_triggered_on_gap(self, mock_conduct_research, mock_delegate):
+    def test_research_triggered_on_gap(self, mock_conduct_research, mock_delegate, mock_catalog):
         # 1. Setup Mock for Gap Analysis
         mock_delegate.side_effect = [
             {"output": '[GAP_FOUND]\nReason: "Need deep expertise in Kubernetes orchestration"\nSearch Query: "agentic patterns for autonomous kubernetes management"'},
             {"output": 'Specialized Role Name: "K8s Architect"\nYAML:\nidentity: "K8s Expert"\nallowed_tools: ["bash"]\nalignment: ["scale"]'}
         ]
+        
+        # Mock catalog responses
+        mock_catalog_inst = mock_catalog.return_value
+        mock_catalog_inst.get_all_summaries.return_value = "Mocked pattern summaries."
         
         # 2. Setup Mock for Web Research
         mock_conduct_research.return_value = {
@@ -43,9 +48,14 @@ class TestExternalResearch(unittest.TestCase):
                 mock_conduct_research.assert_called_once_with("agentic patterns for autonomous kubernetes management", model="mini")
                 self.assertEqual(mock_delegate.call_count, 2)
                 
+    @patch('core.skill_researcher.PatternCatalog')
     @patch('core.skill_researcher.delegate_to_qwen_agent')
-    def test_no_research_on_no_gap(self, mock_delegate):
+    def test_no_research_on_no_gap(self, mock_delegate, mock_catalog):
         mock_delegate.return_value = {"output": "[NO_GAP]"}
+        
+        # Mock catalog responses
+        mock_catalog_inst = mock_catalog.return_value
+        mock_catalog_inst.get_all_summaries.return_value = "Mocked pattern summaries."
         
         console = MagicMock()
         with patch('builtins.open', unittest.mock.mock_open(read_data="agents: {}")):

@@ -287,7 +287,7 @@ def run_gate(cp: ControlPlane, gate_name: str, objective: str, context: str) -> 
         cp.hooks.trigger("on_gate_fail", gate_name, reasoning)
         return False, reasoning
 
-def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objective: str, context: str, gate_name: str, gate_objective: str, max_retries: int = 2, reflection_manager: ReflectionManager = None) -> str:
+def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objective: str, context: str, gate_name: str, gate_objective: str, max_retries: int = 2, reflection_manager: ReflectionManager = None) -> tuple[str, str]:
     """
     Executes a phase and its corresponding gate.
     Includes a self-reflection step before the gate check.
@@ -313,7 +313,7 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
         
         if passed:
             healer.metrics["successes"] += 1
-            return output
+            return output, "PASS"
             
         # [SELF-HEALING FLYWHEEL]
         retries += 1
@@ -340,6 +340,27 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
             
             console.print(f"\n[bold yellow]⚠️  Self-Healing Flywheel Engaged: {diagnosis['category']} Detected.[/bold yellow]")
             console.print(f"[dim]Strategy: {plan['strategy']}[/dim]\n")
+            
+            # Execute actual healing action!
+            healed = healer.execute_heal(plan, failure_context)
+            if healed:
+                if diagnosis["category"] == "LINT/SYNTAX":
+                    output = healed
+                    # Overwrite the workspace files with corrected output
+                    extract_and_write_files(healed)
+                    console.print("[bold green]✓ Applied LINT/SYNTAX healed code to workspace.[/bold green]")
+                    # Immediately recheck the gate!
+                    passed, reasoning = run_gate(cp, gate_name, gate_objective, output)
+                    if passed:
+                        healer.metrics["successes"] += 1
+                        return output, "PASS"
+                elif diagnosis["category"] == "INFRA/DEPENDENCY":
+                    console.print("[bold green]✓ Dependency successfully resolved. Retrying gate check...[/bold green]")
+                    # Immediately recheck the gate!
+                    passed, reasoning = run_gate(cp, gate_name, gate_objective, output)
+                    if passed:
+                        healer.metrics["successes"] += 1
+                        return output, "PASS"
             
             if retries <= max_retries:
                 current_objective = phase_objective + f"\n\n[CRITICAL CORRECTION REQUIRED]\nDiagnosis: {diagnosis['category']}\nReason: {reasoning}\nStrategy: {plan['strategy']}\n\nPlease apply the correction and regenerate."
@@ -376,9 +397,9 @@ def execute_phase_with_resilience(cp: ControlPlane, phase_name: str, phase_objec
                     console.print("\n[bold yellow]Restarting phase with human feedback...[/bold yellow]\n")
                 elif choice == "3":
                     console.print("\n[bold yellow]Forcing pass by human override...[/bold yellow]\n")
-                    return output
+                    return output, "FORCE_PASS"
                 
-    return ""
+    return "", "FAIL"
 
 # ---------------------------------------------------------------------------
 # Ordered list of all phases — used by the checkpoint cascade logic.
@@ -403,7 +424,7 @@ def _run_phase_checkpointed(
     cm: CheckpointManager,
     ss: SessionStore,
     lock: threading.Lock = None,
-) -> str:
+) -> tuple[str, str]:
     """
     Wrapper that adds checkpoint save/load around a phase execution function.
 
@@ -427,9 +448,28 @@ def _run_phase_checkpointed(
                 f"[dim]⏭  {phase_name} — loaded from checkpoint (skipped)[/dim]"
             )
         am.save(phase_name, cached)
-        return cached
+        
+        # Load previous gate decision from session store if available, otherwise default to "PASS"
+        session = ss.get(cm.run_id)
+        decision = "PASS"
+        if session and session.gate_results:
+            gate_map = {
+                "Phase 2 Architecture": "Architecture Review",
+                "Phase 6 QA Testing": "QA Review",
+                "Phase 7 Security": "Security Review"
+            }
+            gate_name = gate_map.get(phase_name)
+            if gate_name and gate_name in session.gate_results:
+                decision = session.gate_results[gate_name]
+                
+        return cached, decision
 
-    output = phase_fn()
+    res = phase_fn()
+    if isinstance(res, tuple):
+        output, decision = res
+    else:
+        output, decision = res, "PASS"
+        
     am.save(phase_name, output)
 
     # Persist checkpoint (CheckpointManager writes are already atomic/thread-safe)
@@ -455,7 +495,7 @@ def _run_phase_checkpointed(
             duration=phase_econ.get("duration_seconds", 0.0),
         )
 
-    return output
+    return output, decision
 
 
 def run_parallel_phases(
@@ -516,7 +556,12 @@ def run_parallel_phases(
                 if first_exc is None:
                     first_exc = exc
             else:
-                outputs[phase_name] = future.result()
+                res = future.result()
+                if isinstance(res, tuple):
+                    output, decision = res
+                else:
+                    output = res
+                outputs[phase_name] = output
                 with lock:
                     console.print(
                         f"[bold green]✓ {phase_name} completed (parallel)[/bold green]"
@@ -737,9 +782,10 @@ def main():
 
     try:
         # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
         # Phase 1: Requirements
         # ------------------------------------------------------------------
-        req_output = _run_phase_checkpointed(
+        req_output, _ = _run_phase_checkpointed(
             cp, "Phase 1 Requirements",
             lambda: run_phase(cp, "Phase 1 Requirements", args.objective, instructions),
             am, cm, ss,
@@ -761,7 +807,7 @@ def main():
         # ------------------------------------------------------------------
         # Phase 2 & Gate 1 (Resilient)
         # ------------------------------------------------------------------
-        arch_output = _run_phase_checkpointed(
+        arch_output, arch_decision = _run_phase_checkpointed(
             cp, "Phase 2 Architecture",
             lambda: execute_phase_with_resilience(
                 cp,
@@ -780,7 +826,7 @@ def main():
         )
 
         # Record gate result
-        ss.record_gate(run_id, "Architecture Review", "PASS")
+        ss.record_gate(run_id, "Architecture Review", arch_decision)
 
         # ------------------------------------------------------------------
         # Phases 3, 4, 5 — run in parallel (no inter-phase data dependency)
@@ -835,9 +881,10 @@ def main():
             )
             parallel_results = {}
             for phase_name, phase_fn in parallel_specs:
-                parallel_results[phase_name] = _run_phase_checkpointed(
+                res_output, _ = _run_phase_checkpointed(
                     cp, phase_name, phase_fn, am, cm, ss
                 )
+                parallel_results[phase_name] = res_output
         else:
             parallel_results = run_parallel_phases(parallel_specs, cp, am, cm, ss)
 
@@ -848,7 +895,7 @@ def main():
         # ------------------------------------------------------------------
         # Phase 6 & Gate 2 (Resilient)
         # ------------------------------------------------------------------
-        qa_output = _run_phase_checkpointed(
+        qa_output, qa_decision = _run_phase_checkpointed(
             cp, "Phase 6 QA Testing",
             lambda: execute_phase_with_resilience(
                 cp,
@@ -865,12 +912,12 @@ def main():
             ),
             am, cm, ss,
         )
-        ss.record_gate(run_id, "QA Review", "PASS")
+        ss.record_gate(run_id, "QA Review", qa_decision)
 
         # ------------------------------------------------------------------
         # Phase 7 & Gate 3 (Resilient)
         # ------------------------------------------------------------------
-        sec_output = _run_phase_checkpointed(
+        sec_output, sec_decision = _run_phase_checkpointed(
             cp, "Phase 7 Security",
             lambda: execute_phase_with_resilience(
                 cp,
@@ -887,12 +934,12 @@ def main():
             ),
             am, cm, ss,
         )
-        ss.record_gate(run_id, "Security Review", "PASS")
+        ss.record_gate(run_id, "Security Review", sec_decision)
 
         # ------------------------------------------------------------------
         # Phase 8: Deployment & Documentation
         # ------------------------------------------------------------------
-        deploy_output = _run_phase_checkpointed(
+        deploy_output, _ = _run_phase_checkpointed(
             cp, "Phase 8 Deployment",
             lambda: run_phase(
                 cp,

@@ -109,11 +109,75 @@ class SelfHealer:
         with open(self.trace_dir / "healing_history.log", 'a', encoding='utf-8') as f:
             f.write(f"[{timestamp}] {category} - {strategy}\n")
 
-    def execute_heal(self, plan: Dict):
+    def execute_heal(self, plan: Dict, failure_context: Dict) -> Optional[str]:
         """
-        Placeholder for the actual healing action (using tools).
+        Executes the actual healing action based on the plan and failure context.
+        Returns the healed output string if applicable (e.g. for LINT/SYNTAX).
         """
-        print(f"Executing Heal: {plan['strategy']}")
+        category = failure_context.get("diagnosis", {}).get("category")
+        if not category:
+            diagnosis = self.diagnose(failure_context)
+            category = diagnosis["category"]
+
+        error_output = failure_context.get("error_output", "")
+        print(f"Executing Heal Strategy: {plan['strategy']} (Category: {category})")
+
+        if category == "INFRA/DEPENDENCY":
+            import re
+            import sys
+            import subprocess
+            # Regex patterns to search for package name
+            match = re.search(r"No module named ['\"]([^'\"]+)['\"]", error_output, re.IGNORECASE)
+            if not match:
+                match = re.search(r"pip install ([a-zA-Z0-9_\-]+)", error_output, re.IGNORECASE)
+            if not match:
+                match = re.search(r"ModuleNotFoundError:\s*No\s*module\s*named\s*['\"]([^'\"]+)['\"]", error_output, re.IGNORECASE)
+
+            if match:
+                pkg = match.group(1)
+                print(f"Self-Healing: Detected missing package '{pkg}'. Attempting installation...")
+                try:
+                    res = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", pkg],
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    print(f"Self-Healing: pip install {pkg} exited with code {res.returncode}")
+                    return f"Successfully installed {pkg}"
+                except Exception as e:
+                    print(f"Self-Healing: pip install {pkg} failed: {str(e)}")
+                    return None
+            else:
+                print("Self-Healing: INFRA/DEPENDENCY detected but package name not found in error.")
+                return None
+
+        elif category == "LINT/SYNTAX":
+            from qwen_client import QwenClient
+            qwen = QwenClient()
+            print("Self-Healing: Running Qwen LINT/SYNTAX correction...")
+            system_prompt = (
+                "You are an expert AI software engineer specializing in automated self-healing. "
+                "You are given a codebase generation output that contains syntax, lint, or structural errors. "
+                "Your goal is to output a surgically corrected version of the output. "
+                "Keep the exact same files, comments, and structure, but fix the lint/syntax errors described. "
+                "IMPORTANT: Respond only with the corrected markdown/code blocks, ensuring file path comments (e.g. `# path/to/file.py`) are preserved."
+            )
+            user_prompt = (
+                f"FAILED GENERATED OUTPUT:\n```\n{failure_context.get('output', '')}\n```\n\n"
+                f"LINT/SYNTAX ERROR DETAILS:\n{error_output}\n\n"
+                "Please output the corrected version of the output."
+            )
+            try:
+                res = qwen.generate_response(system_prompt, user_prompt, temperature=0.1)
+                corrected = res.get("output", "")
+                if corrected:
+                    return corrected
+            except Exception as e:
+                print(f"Self-Healing: LINT/SYNTAX Qwen correction failed: {str(e)}")
+                return None
+
+        return None
 
     def get_adaptive_suggestion(self) -> Optional[str]:
         """

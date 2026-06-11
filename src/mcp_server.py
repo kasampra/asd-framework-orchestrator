@@ -1,6 +1,8 @@
 import os
 import datetime
 import subprocess
+import shlex
+import shutil
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from qwen_client import QwenClient
@@ -49,7 +51,7 @@ def get_framework_instructions() -> str:
 @mcp.tool()
 def execute_bash_command(command: str, cwd: str = ".") -> str:
     """
-    Execute a native bash/terminal command on the host system.
+    Execute a native bash/terminal command on the host system safely.
     CRITICAL FOR QA AGENT: Use this to physically run `pytest` or `npm run lint` 
     to validate the AST/code correctness before marking the phase complete.
     
@@ -59,11 +61,41 @@ def execute_bash_command(command: str, cwd: str = ".") -> str:
         # Ensure the directory exists
         Path(cwd).mkdir(parents=True, exist_ok=True)
         
-        # We use shell=True to allow complex piping if needed, with a timeout to prevent infinite hangs
+        # Verify the path is within the workspace
+        resolved_cwd = Path(cwd).resolve()
+        resolved_workspace = Path(WORKSPACE_BASE_DIR).resolve()
+        if resolved_workspace not in resolved_cwd.parents and resolved_workspace != resolved_cwd:
+            return f"Command execution rejected: target directory '{cwd}' is outside the workspace."
+
+        # Parse command safely
+        try:
+            cmd_parts = shlex.split(command)
+        except Exception as e:
+            return f"Failed to parse command: {str(e)}"
+
+        if not cmd_parts:
+            return "Empty command."
+
+        # Extract base executable name
+        exe_name = os.path.basename(cmd_parts[0])
+        exe_base, _ = os.path.splitext(exe_name)
+        exe_base = exe_base.lower()
+
+        ALLOWED_COMMANDS = {"pytest", "npm", "pip", "git", "python", "ruff", "flake8", "bandit"}
+        if exe_base not in ALLOWED_COMMANDS:
+            return f"Command execution rejected: '{exe_name}' is not in the allowed command whitelist."
+
+        # Resolve path to executable for shell=False to work correctly on Windows
+        resolved_exe = shutil.which(cmd_parts[0])
+        if not resolved_exe:
+            return f"Executable '{cmd_parts[0]}' not found in PATH."
+        cmd_parts[0] = resolved_exe
+
+        # Execute command safely with shell=False
         result = subprocess.run(
-            command,
+            cmd_parts,
             cwd=cwd,
-            shell=True,
+            shell=False,
             capture_output=True,
             text=True,
             timeout=120
@@ -104,7 +136,17 @@ Relevant Context & Artifacts:
 
 Execute the above objective and provide the generated code, designs, or output.
 """
-    result = qwen.generate_response(system_prompt, user_prompt, temperature=0.2)
+    from model_router import ModelRouter
+    router = ModelRouter()
+    
+    # Route to fast model for reflection/critique/refinement, full model for generation
+    if any(kwd in phase_name for kwd in ["Reflection", "Refinement", "Critique"]):
+        task_type = "reflection"
+    else:
+        task_type = "generation"
+        
+    model = router.get_model(task_type)
+    result = qwen.generate_response(system_prompt, user_prompt, temperature=0.2, model_name=model)
     
     roles = load_agent_roles()
     skills = load_agent_skills()
@@ -130,7 +172,10 @@ def evaluate_quality_gate(gate_name: str, phase_objective: str, verification_con
         "available_tools": list
     }
     """
-    result = qwen.evaluate_gate(gate_name, phase_objective, verification_context)
+    from model_router import ModelRouter
+    router = ModelRouter()
+    model = router.get_model("gate")
+    result = qwen.evaluate_gate(gate_name, phase_objective, verification_context, model_name=model)
     result["tool_used"] = "evaluate_quality_gate"
     result["available_tools"] = AVAILABLE_TOOLS
     return result

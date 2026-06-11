@@ -12,7 +12,7 @@ class PatternCatalog:
         self._ensure_catalog_exists()
 
     def _ensure_catalog_exists(self):
-        if not self.catalog_path.exists():
+        if not self.catalog_path.exists() or self.catalog_path.stat().st_size == 0:
             with open(self.catalog_path, "w", encoding="utf-8") as f:
                 json.dump({"patterns": []}, f, indent=4)
 

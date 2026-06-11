@@ -38,7 +38,7 @@ class QwenClient:
             return reasoning, output
         return "", content.strip()
 
-    def generate_response(self, system_prompt: str, user_prompt: str, temperature: float = 0.3) -> dict:
+    def generate_response(self, system_prompt: str, user_prompt: str, temperature: float = 0.3, model_name: str = None) -> dict:
         """
         Send a request to the local Qwen model.
         
@@ -60,7 +60,7 @@ class QwenClient:
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name,
+                model=model_name or self.model_name,
                 messages=[
                     {"role": "system", "content": enhanced_system},
                     {"role": "user", "content": user_prompt}
@@ -93,7 +93,7 @@ class QwenClient:
                 "raw": error_msg,
             }
 
-    def evaluate_gate(self, gate_name: str, objective: str, verification_context: str) -> dict:
+    def evaluate_gate(self, gate_name: str, objective: str, verification_context: str, model_name: str = None) -> dict:
         """
         Gatekeeper AI logic. Returns a structured dict with decision, reasoning, and trace.
         """
@@ -122,7 +122,7 @@ Evaluate the evidence against the objective. Does it meet all criteria securely 
 """
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name,
+                model=model_name or self.model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
